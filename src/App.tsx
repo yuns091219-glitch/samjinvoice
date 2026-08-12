@@ -15,6 +15,8 @@ import {
   incrementLikesInSupabase,
   updateStatusInSupabase,
   deleteSuggestionFromSupabase,
+  addCommentToSupabase,
+  supabase,
 } from './lib/supabase';
 import { INITIAL_SUGGESTIONS } from './data/initialData';
 
@@ -196,6 +198,30 @@ export default function App() {
 
   useEffect(() => {
     fetchSuggestions();
+
+    // Real-time listener for shared Supabase updates across all devices
+    const channel = supabase
+      .channel('public:suggestions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'suggestions' }, () => {
+        fetchSuggestions();
+      })
+      .subscribe();
+
+    // Fast polling every 5 seconds as fallback to guarantee all users see new suggestions live
+    const interval = setInterval(() => {
+      fetchSuggestions();
+    }, 5000);
+
+    const onFocus = () => {
+      fetchSuggestions();
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [selectedCategory, selectedStatus, searchQuery, sortBy]);
 
   // Admin stats computation
@@ -344,6 +370,14 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Comment API error:', err);
+    }
+
+    if (!updatedPost) {
+      try {
+        updatedPost = await addCommentToSupabase(suggestionId, newComment);
+      } catch (sbErr) {
+        console.warn('Supabase add comment failed:', sbErr);
+      }
     }
 
     if (!updatedPost) {

@@ -103,7 +103,7 @@ export const fetchSuggestionsFromSupabase = async (): Promise<Suggestion[]> => {
 };
 
 /**
- * 2. 건의사항 등록: 제목, 내용, 카테고리, 익명 여부, 작성자 이름을 DB suggestions 테이블에 INSERT
+ * 2. 건의사항 등록: 다양한 DB 스키마 변형에 대응하는 다중 시도 로직
  */
 export const insertSuggestionToSupabase = async (payload: {
   title: string;
@@ -114,35 +114,117 @@ export const insertSuggestionToSupabase = async (payload: {
   tags?: string[];
   secretPin?: string;
 }): Promise<Suggestion> => {
-  const insertData: any = {
-    title: payload.title.trim(),
-    content: payload.content.trim(),
-    category: payload.category,
-    is_anonymous: payload.isSecret,
-    author_name: payload.authorNickname.trim() || '익명의 삼진인',
-    likes: 0,
-    status: '접수중',
-  };
+  const authorName = payload.authorNickname.trim() || '익명의 삼진인';
+  const tagsList = Array.isArray(payload.tags) && payload.tags.length > 0 ? payload.tags : ['#마산삼진고', '#건의사항'];
+  const pin = payload.secretPin?.trim() || null;
 
-  if (payload.secretPin) {
-    insertData.secret_pin = payload.secretPin.trim();
+  // Try multiple variant payloads to match whichever column names exist in the remote Supabase table
+  const insertVariants = [
+    {
+      title: payload.title.trim(),
+      content: payload.content.trim(),
+      category: payload.category,
+      is_anonymous: payload.isSecret,
+      author_name: authorName,
+      likes: 0,
+      status: '접수중',
+      secret_pin: pin,
+      tags: tagsList,
+    },
+    {
+      title: payload.title.trim(),
+      content: payload.content.trim(),
+      category: payload.category,
+      is_secret: payload.isSecret,
+      author_nickname: authorName,
+      likes: 0,
+      status: '접수중',
+      secret_pin: pin,
+      tags: tagsList,
+    },
+    {
+      title: payload.title.trim(),
+      content: payload.content.trim(),
+      category: payload.category,
+      is_anonymous: payload.isSecret,
+      author_name: authorName,
+      likes: 0,
+      status: '접수중',
+    },
+    {
+      title: payload.title.trim(),
+      content: payload.content.trim(),
+      category: payload.category,
+      status: '접수중',
+    },
+    {
+      title: payload.title.trim(),
+      content: payload.content.trim(),
+    },
+  ];
+
+  let lastError: any = null;
+  for (const variant of insertVariants) {
+    try {
+      const { data, error } = await supabase
+        .from('suggestions')
+        .insert([variant])
+        .select()
+        .single();
+
+      if (!error && data) {
+        return mapRowToSuggestion(data);
+      }
+      lastError = error;
+    } catch (e) {
+      lastError = e;
+    }
   }
-  if (Array.isArray(payload.tags) && payload.tags.length > 0) {
-    insertData.tags = payload.tags;
+
+  console.error('All Supabase insert variants failed:', lastError);
+  throw lastError || new Error('Supabase insert failed');
+};
+
+/**
+ * 3. 댓글 추가 기능: Supabase DB comments JSON 컬럼 업데이트
+ */
+export const addCommentToSupabase = async (
+  suggestionId: string,
+  newComment: {
+    id: string;
+    authorNickname: string;
+    content: string;
+    createdAt: string;
+    isOfficial?: boolean;
+    officialRole?: string;
   }
+): Promise<Suggestion> => {
+  try {
+    const { data: current } = await supabase
+      .from('suggestions')
+      .select('comments')
+      .eq('id', suggestionId)
+      .single();
 
-  const { data, error } = await supabase
-    .from('suggestions')
-    .insert([insertData])
-    .select()
-    .single();
+    const existing = Array.isArray(current?.comments) ? current.comments : [];
+    const updatedComments = [...existing, newComment];
 
-  if (error) {
-    console.error('Supabase insert error:', error);
-    throw new Error(error.message);
+    const { data, error } = await supabase
+      .from('suggestions')
+      .update({ comments: updatedComments })
+      .eq('id', suggestionId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw error || new Error('Comment update failed');
+    }
+
+    return mapRowToSuggestion(data);
+  } catch (err) {
+    console.warn('addCommentToSupabase error:', err);
+    throw err;
   }
-
-  return mapRowToSuggestion(data);
 };
 
 /**
