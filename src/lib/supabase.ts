@@ -114,7 +114,7 @@ export const insertSuggestionToSupabase = async (payload: {
   tags?: string[];
   secretPin?: string;
 }): Promise<Suggestion> => {
-  const insertData = {
+  const insertData: any = {
     title: payload.title.trim(),
     content: payload.content.trim(),
     category: payload.category,
@@ -123,6 +123,13 @@ export const insertSuggestionToSupabase = async (payload: {
     likes: 0,
     status: '접수중',
   };
+
+  if (payload.secretPin) {
+    insertData.secret_pin = payload.secretPin.trim();
+  }
+  if (Array.isArray(payload.tags) && payload.tags.length > 0) {
+    insertData.tags = payload.tags;
+  }
 
   const { data, error } = await supabase
     .from('suggestions')

@@ -160,23 +160,43 @@ async function startServer() {
     }
 
     try {
-      const newSuggestion = await insertSuggestionToSupabase({
-        title,
-        content,
-        category: category as Category,
-        isSecret: Boolean(isSecret),
-        authorNickname: authorNickname ? authorNickname.trim() : '익명의 삼진인',
-        tags: Array.isArray(tags) ? tags : ['#마산삼진고', '#건의사항'],
-        secretPin: secretPin ? String(secretPin).trim() : undefined,
-      });
+      let newSuggestion: Suggestion;
+      try {
+        newSuggestion = await insertSuggestionToSupabase({
+          title,
+          content,
+          category: category as Category,
+          isSecret: Boolean(isSecret),
+          authorNickname: authorNickname ? authorNickname.trim() : '익명의 삼진인',
+          tags: Array.isArray(tags) ? tags : ['#마산삼진고', '#건의사항'],
+          secretPin: secretPin ? String(secretPin).trim() : undefined,
+        });
+      } catch (dbErr) {
+        console.warn('Supabase insert failed, creating in-memory fallback:', dbErr);
+        newSuggestion = {
+          id: `sug-${Date.now()}`,
+          category: (category as Category) || 'OTHER',
+          title: title.trim(),
+          content: content.trim(),
+          authorNickname: authorNickname?.trim() || '익명의 삼진인',
+          isSecret: Boolean(isSecret),
+          secretPin: secretPin ? String(secretPin).trim() : undefined,
+          status: 'RECEIVED',
+          upvotes: 0,
+          tags: Array.isArray(tags) && tags.length > 0 ? tags : ['#마산삼진고', '#건의사항'],
+          comments: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
 
-      // Keep in-memory store updated as fallback
+      // Keep in-memory store updated
       suggestionsStore.unshift(newSuggestion);
 
       const { secretPin: _pin, ...safeCreated } = newSuggestion;
       res.status(201).json(safeCreated);
     } catch (err: any) {
-      console.error('Error creating suggestion in Supabase:', err);
+      console.error('Error creating suggestion:', err);
       res.status(500).json({ error: '건의사항 등록 중 오류가 발생했습니다.' });
     }
   });
