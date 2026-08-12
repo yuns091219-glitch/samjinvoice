@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <rect width="200" height="200" rx="44" fill="#FFFFFF" />
+  <rect width="192" height="192" x="4" y="4" rx="40" fill="none" stroke="#E6E2D3" stroke-width="4" />
+  <g fill="#0A2368" transform="translate(-20, 20)">
+    <!-- Left 3 Horizontal Bars '三' -->
+    <rect x="35" y="52" width="38" height="9" rx="1" />
+    <rect x="35" y="75" width="38" height="9" rx="1" />
+    <rect x="35" y="98" width="38" height="9" rx="1" />
+
+    <!-- Center '高' character -->
+    <!-- Top dot/bar -->
+    <rect x="113" y="28" width="14" height="12" rx="1" />
+    <rect x="88" y="44" width="64" height="9" rx="1" />
+    
+    <!-- Upper Box '口' -->
+    <path d="M 95 57 L 145 57 L 145 78 L 95 78 Z M 104 65 L 104 70 L 136 70 L 136 65 Z" fill-rule="evenodd" />
+
+    <!-- Lower Outer Frame '冂' -->
+    <path d="M 88 84 L 152 84 L 152 130 L 142 130 L 142 93 L 98 93 L 98 130 L 88 130 Z" />
+
+    <!-- Inner Triangle '△' inside lower section -->
+    <polygon points="120,99 104,123 136,123" fill="none" stroke="#0A2368" stroke-width="7" stroke-linejoin="miter" />
+
+    <!-- Right 3 Horizontal Bars '三' -->
+    <rect x="167" y="52" width="38" height="9" rx="1" />
+    <rect x="167" y="75" width="38" height="9" rx="1" />
+    <rect x="167" y="98" width="38" height="9" rx="1" />
+  </g>
+</svg>

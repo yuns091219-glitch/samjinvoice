@@ -14,14 +14,21 @@ export const SchoolInfoBanner: React.FC<SchoolInfoBannerProps> = ({
         <div className="absolute -right-6 -bottom-6 w-48 h-48 bg-[#5F7161]/5 rounded-full blur-2xl pointer-events-none"></div>
 
         <div className="space-y-2 sm:space-y-3 relative z-10">
-          <div className="inline-flex items-center space-x-1.5 bg-[#E6E2D3] text-[#5F7161] text-[10px] sm:text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
-            <Shield className="w-3.5 h-3.5 shrink-0" />
-            <span>100% 철저한 익명성 보장</span>
+          <div className="flex items-center space-x-2">
+            <div className="inline-flex items-center space-x-1.5 bg-[#E6E2D3] text-[#5F7161] text-[10px] sm:text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+              <Shield className="w-3.5 h-3.5 shrink-0" />
+              <span>100% 철저한 익명성 보장</span>
+            </div>
           </div>
 
-          <h2 className="text-lg sm:text-2xl font-bold text-[#2D2926] leading-tight">
-            학생들의 목소리로 만들어가는 더 나은 마산삼진고 🏫
-          </h2>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white border border-[#E6E2D3] rounded-2xl p-1.5 shrink-0 shadow-xs">
+              <img src="/logo.svg" alt="마산삼진고 교표" className="w-full h-full object-contain" />
+            </div>
+            <h2 className="text-lg sm:text-2xl font-bold text-[#2D2926] leading-tight">
+              학생들의 목소리로 만들어가는 더 나은 마산삼진고
+            </h2>
+          </div>
 
           <p className="text-xs sm:text-sm text-[#8C8479] leading-relaxed max-w-3xl">
             교내 시설, 학습 환경, 학생회 행사 등 개선이 필요한 의견을 자유롭게 건의해주세요. 
