@@ -269,8 +269,8 @@ async function startServer() {
     const { id } = req.params;
     const { status, officialResponse, adminPin } = req.body;
 
-    // Admin PIN check ('ihateyou')
-    if (adminPin !== 'ihateyou') {
+    // Admin PIN check ('fldkzh')
+    if (adminPin !== 'fldkzh') {
       res.status(403).json({ error: '관리자 권한 비밀번호가 올바르지 않습니다.' });
       return;
     }
@@ -300,7 +300,7 @@ async function startServer() {
     const { id } = req.params;
     const { pin, adminPin } = req.body;
 
-    const isAdmin = adminPin === 'ihateyou';
+    const isAdmin = adminPin === 'fldkzh';
 
     try {
       await deleteSuggestionFromSupabase(id);

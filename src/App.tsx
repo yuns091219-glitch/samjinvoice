@@ -42,7 +42,7 @@ export default function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminPin, setAdminPin] = useState('ihateyou');
+  const [adminPin, setAdminPin] = useState('fldkzh');
 
   // Student Self-Lookup state
   const [lookupId, setLookupId] = useState('');
@@ -356,7 +356,7 @@ export default function App() {
 
   // Admin Login
   const handleLoginAdmin = (pin: string) => {
-    if (pin === 'ihateyou') {
+    if (pin === 'fldkzh') {
       setIsAdmin(true);
       setAdminPin(pin);
       showToast('🛡️ 학생회/교사 관리자 모드로 전환되었습니다.');
