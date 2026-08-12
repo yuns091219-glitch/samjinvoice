@@ -25,7 +25,58 @@ export const INITIAL_NOTICES: Notice[] = [
   },
 ];
 
-export const INITIAL_SUGGESTIONS: Suggestion[] = [];
+export const INITIAL_SUGGESTIONS: Suggestion[] = [
+  {
+    id: 'sug-default-1',
+    category: 'FACILITY',
+    title: '체육관 인근 자원재활용 쓰레기통 추가 설치 및 분리수거함 교체 요청',
+    content: '체육 수업 후나 점심시간 스포츠 활동 이후 음료수 캔과 페트병이 많이 배출되는데 체육관 주변 분리수거함 용량이 부족합니다. 분리수거함을 확대 설치해주시면 감사하겠습니다.',
+    authorNickname: '열정적인 스포츠왕',
+    isSecret: false,
+    status: 'IN_REVIEW',
+    upvotes: 18,
+    tags: ['#체육관', '#시설개선', '#분리수거'],
+    comments: [
+      {
+        id: 'c1',
+        authorNickname: '성실한 동아리부장',
+        content: '적극 동의합니다! 체육관 이용 후 쓰레기 처리가 훨씬 편해질 것 같아요.',
+        createdAt: '2026-08-11T10:30:00Z',
+        isOfficial: false,
+      }
+    ],
+    officialResponse: {
+      authorName: '학생회장',
+      department: '제53대 삼진고 학생회',
+      content: '행정실 및 학생안전부에 해당 건의를 전달하였으며, 다음 주 수요일 체육관 측면에 신형 분리수거함 2세트 추가 배치가 확정되었습니다.',
+      updatedAt: '2026-08-12T08:00:00Z',
+      status: 'IN_REVIEW',
+    },
+    createdAt: '2026-08-11T09:00:00Z',
+    updatedAt: '2026-08-12T08:00:00Z',
+  },
+  {
+    id: 'sug-default-2',
+    category: 'MEALS',
+    title: '급식 자율배식대 샐러드 드레싱 종류 다양화 건의',
+    content: '매주 수요일 자율배식대 샐러드 코너에서 제공되는 드레싱 종류를 오리엔탈 외에 참깨나 발사믹 등으로 주차별 변경해 주실 수 있는지 궁금합니다!',
+    authorNickname: '급식먹는 독수리',
+    isSecret: false,
+    status: 'ANSWERED',
+    upvotes: 24,
+    tags: ['#급식실', '#자율배식', '#샐러드'],
+    comments: [],
+    officialResponse: {
+      authorName: '급식관리실',
+      department: '삼진고 급식실',
+      content: '학생들의 건강한 식단을 위해 8월 3주차부터 매주 수요일 자율배식대에 2가지 종류(참깨/유자)의 드레싱을 번갈아 제공하기로 결정했습니다.',
+      updatedAt: '2026-08-10T14:20:00Z',
+      status: 'ANSWERED',
+    },
+    createdAt: '2026-08-10T11:15:00Z',
+    updatedAt: '2026-08-10T14:20:00Z',
+  }
+];
 
 export const TODAY_LUNCH: LunchMenu = {
   date: '2026년 8월 11일 (화요일)',

@@ -16,9 +16,33 @@ import {
   updateStatusInSupabase,
   deleteSuggestionFromSupabase,
 } from './lib/supabase';
+import { INITIAL_SUGGESTIONS } from './data/initialData';
 
 export default function App() {
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  // Initial suggestions from localStorage for instant load, or INITIAL_SUGGESTIONS as default
+  const [suggestions, setSuggestions] = useState<Suggestion[]>(() => {
+    try {
+      const saved = localStorage.getItem('samjin_suggestions_persistent_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return INITIAL_SUGGESTIONS;
+    } catch (e) {
+      return INITIAL_SUGGESTIONS;
+    }
+  });
+
+  // Sync suggestions to localStorage whenever suggestions state changes
+  useEffect(() => {
+    if (suggestions.length > 0) {
+      try {
+        localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(suggestions));
+      } catch (e) {
+        console.error('Failed to save suggestions to localStorage:', e);
+      }
+    }
+  }, [suggestions]);
   const [notices, setNotices] = useState<Notice[]>([]);
 
   const [loading, setLoading] = useState(true);
@@ -116,8 +140,32 @@ export default function App() {
         }
       }
 
+      // Get cached local posts from localStorage
+      let cachedPosts: Suggestion[] = [];
+      try {
+        const saved = localStorage.getItem('samjin_suggestions_persistent_v1');
+        if (saved) cachedPosts = JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+
       if (fetchedData) {
-        setSuggestions(fetchedData);
+        // Merge fetched data with local posts (giving priority to updated remote data while preserving local creations)
+        const remoteIds = new Set(fetchedData.map((s) => s.id));
+        const localOnly = cachedPosts.filter((s) => !remoteIds.has(s.id));
+        const combined = [...localOnly, ...fetchedData];
+
+        // Deduplicate by id
+        const uniqueMap = new Map<string, Suggestion>();
+        combined.forEach((item) => uniqueMap.set(item.id, item));
+        const mergedList = Array.from(uniqueMap.values());
+
+        // Sort by createdAt descending
+        mergedList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        setSuggestions(mergedList);
+      } else if (cachedPosts.length > 0) {
+        setSuggestions(cachedPosts);
       }
       setError(null);
     } catch (err: any) {
