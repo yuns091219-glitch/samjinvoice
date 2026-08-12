@@ -13,6 +13,7 @@ import {
   updateStatusInSupabase,
   deleteSuggestionFromSupabase,
   addCommentToSupabase,
+  deleteCommentFromSupabase,
 } from './src/lib/supabase';
 
 // In-memory data store for the session
@@ -266,6 +267,31 @@ async function startServer() {
         suggestionsStore[index].updatedAt = new Date().toISOString();
 
         const { secretPin, ...safeUpdated } = suggestionsStore[index];
+        res.json(safeUpdated);
+      } else {
+        res.status(404).json({ error: '건의글을 찾을 수 없습니다.' });
+      }
+    }
+  });
+
+  // Delete comment
+  app.delete('/api/suggestions/:suggestionId/comments/:commentId', async (req, res) => {
+    const { suggestionId, commentId } = req.params;
+    try {
+      const updated = await deleteCommentFromSupabase(suggestionId, commentId);
+      const idx = suggestionsStore.findIndex((s) => s.id === suggestionId);
+      if (idx !== -1) {
+        suggestionsStore[idx] = updated;
+      }
+      const { secretPin, ...safeUpdated } = updated;
+      res.json(safeUpdated);
+    } catch (err) {
+      const idx = suggestionsStore.findIndex((s) => s.id === suggestionId);
+      if (idx !== -1) {
+        if (Array.isArray(suggestionsStore[idx].comments)) {
+          suggestionsStore[idx].comments = suggestionsStore[idx].comments.filter((c) => c.id !== commentId);
+        }
+        const { secretPin, ...safeUpdated } = suggestionsStore[idx];
         res.json(safeUpdated);
       } else {
         res.status(404).json({ error: '건의글을 찾을 수 없습니다.' });

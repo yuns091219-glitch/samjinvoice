@@ -10,6 +10,7 @@ interface SuggestionDetailModalProps {
   onClose: () => void;
   onUpvote: (id: string) => void;
   onAddComment: (suggestionId: string, nickname: string, content: string, isOfficial?: boolean) => void;
+  onDeleteComment?: (suggestionId: string, commentId: string) => void;
   onUpdateStatus: (id: string, status: Status, responseContent?: string) => void;
   onDeleteSuggestion: (id: string, pin?: string) => void;
   isAdmin: boolean;
@@ -23,6 +24,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   onClose,
   onUpvote,
   onAddComment,
+  onDeleteComment,
   onUpdateStatus,
   onDeleteSuggestion,
   isAdmin,
@@ -473,14 +475,26 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
                             )}
                             {comment.authorNickname}
                           </span>
-                          <span className="text-[10px] text-slate-400">
-                            {new Date(comment.createdAt).toLocaleDateString('ko-KR', {
-                              month: 'numeric',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(comment.createdAt).toLocaleDateString('ko-KR', {
+                                month: 'numeric',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                            {isAdmin && onDeleteComment && (
+                              <button
+                                type="button"
+                                onClick={() => onDeleteComment(activeSuggestion.id, comment.id)}
+                                className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 rounded-sm"
+                                title="관리자 권한으로 댓글 삭제"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <p className="whitespace-pre-wrap">{comment.content}</p>
                       </div>

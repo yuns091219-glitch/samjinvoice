@@ -16,6 +16,7 @@ import {
   updateStatusInSupabase,
   deleteSuggestionFromSupabase,
   addCommentToSupabase,
+  deleteCommentFromSupabase,
   supabase,
 } from './lib/supabase';
 import { INITIAL_SUGGESTIONS } from './data/initialData';
@@ -160,20 +161,44 @@ export default function App() {
 
       if (fetchedData) {
         fetchedData = fetchedData.filter((s) => !s.id.startsWith('sug-default-'));
-        // Merge fetched data with local posts (giving priority to updated remote data while preserving local creations)
+
+        const cachedMap = new Map(cachedPosts.map((s) => [s.id, s]));
+
+        const mergedList = fetchedData.map((remoteItem) => {
+          const cachedItem = cachedMap.get(remoteItem.id);
+          if (!cachedItem) return remoteItem;
+
+          const remoteComments = Array.isArray(remoteItem.comments) ? remoteItem.comments : [];
+          const cachedComments = Array.isArray(cachedItem.comments) ? cachedItem.comments : [];
+
+          // Merge comments from cached and remote to avoid dropping comments
+          const commentMap = new Map<string, any>();
+          cachedComments.forEach((c) => commentMap.set(c.id, c));
+          remoteComments.forEach((c) => commentMap.set(c.id, c));
+
+          return {
+            ...remoteItem,
+            comments: Array.from(commentMap.values()),
+          };
+        });
+
         const remoteIds = new Set(fetchedData.map((s) => s.id));
         const localOnly = cachedPosts.filter((s) => !remoteIds.has(s.id));
-        const combined = [...localOnly, ...fetchedData];
+        const combined = [...localOnly, ...mergedList];
 
-        // Deduplicate by id
         const uniqueMap = new Map<string, Suggestion>();
         combined.forEach((item) => uniqueMap.set(item.id, item));
-        const mergedList = Array.from(uniqueMap.values()).filter((s) => !s.id.startsWith('sug-default-'));
+        const fullList = Array.from(uniqueMap.values()).filter((s) => !s.id.startsWith('sug-default-'));
 
         // Sort by createdAt descending
-        mergedList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        fullList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-        setSuggestions(mergedList);
+        setSuggestions(fullList);
+        try {
+          localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(fullList));
+        } catch (e) {
+          console.error(e);
+        }
       } else {
         setSuggestions(cachedPosts);
       }
@@ -356,9 +381,9 @@ export default function App() {
       officialRole: isOfficial ? '학생회' : undefined,
     };
 
-    // Optimistically update React state immediately
-    setSuggestions((prev) =>
-      prev.map((s) => {
+    // Optimistically update React state immediately and save to localStorage
+    setSuggestions((prev) => {
+      const next = prev.map((s) => {
         if (s.id === suggestionId) {
           return {
             ...s,
@@ -366,8 +391,14 @@ export default function App() {
           };
         }
         return s;
-      })
-    );
+      });
+      try {
+        localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
 
     setSelectedSuggestion((prev) => {
       if (prev && prev.id === suggestionId) {
@@ -421,11 +452,68 @@ export default function App() {
         finalPost.comments = [...(finalPost.comments || []), newComment];
       }
 
-      setSuggestions((prev) => prev.map((s) => (s.id === suggestionId ? finalPost : s)));
+      setSuggestions((prev) => {
+        const next = prev.map((s) => (s.id === suggestionId ? finalPost : s));
+        try {
+          localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(next));
+        } catch (e) {
+          console.error(e);
+        }
+        return next;
+      });
       setSelectedSuggestion((prev) => (prev && prev.id === suggestionId ? finalPost : prev));
     }
 
     showToast('💬 댓글이 작성되었습니다.');
+  };
+
+  // Delete Comment Handler (Admin)
+  const handleDeleteComment = async (suggestionId: string, commentId: string) => {
+    if (!confirm('이 댓글을 삭제하시겠습니까?')) return;
+
+    setSuggestions((prev) => {
+      const next = prev.map((s) => {
+        if (s.id === suggestionId) {
+          return {
+            ...s,
+            comments: (s.comments || []).filter((c) => c.id !== commentId),
+          };
+        }
+        return s;
+      });
+      try {
+        localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+
+    setSelectedSuggestion((prev) => {
+      if (prev && prev.id === suggestionId) {
+        return {
+          ...prev,
+          comments: (prev.comments || []).filter((c) => c.id !== commentId),
+        };
+      }
+      return prev;
+    });
+
+    try {
+      await fetch(`/api/suggestions/${suggestionId}/comments/${commentId}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      console.warn('Delete comment API error:', err);
+    }
+
+    try {
+      await deleteCommentFromSupabase(suggestionId, commentId);
+    } catch (err) {
+      console.warn('Delete comment Supabase error:', err);
+    }
+
+    showToast('🗑️ 댓글이 삭제되었습니다.');
   };
 
   // Status & Official Response Update Handler
@@ -807,6 +895,7 @@ export default function App() {
         onClose={() => setSelectedSuggestion(null)}
         onUpvote={handleUpvote}
         onAddComment={handleAddComment}
+        onDeleteComment={handleDeleteComment}
         onUpdateStatus={handleUpdateStatus}
         onDeleteSuggestion={handleDeleteSuggestion}
         isAdmin={isAdmin}

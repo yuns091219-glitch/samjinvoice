@@ -228,6 +228,41 @@ export const addCommentToSupabase = async (
 };
 
 /**
+ * 3-1. 댓글 삭제 기능: Supabase DB comments JSON 컬럼에서 댓글 제거
+ */
+export const deleteCommentFromSupabase = async (
+  suggestionId: string,
+  commentId: string
+): Promise<Suggestion> => {
+  try {
+    const { data: current } = await supabase
+      .from('suggestions')
+      .select('comments')
+      .eq('id', suggestionId)
+      .single();
+
+    const existing = Array.isArray(current?.comments) ? current.comments : [];
+    const updatedComments = existing.filter((c: any) => c.id !== commentId);
+
+    const { data, error } = await supabase
+      .from('suggestions')
+      .update({ comments: updatedComments })
+      .eq('id', suggestionId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw error || new Error('Comment delete failed');
+    }
+
+    return mapRowToSuggestion(data);
+  } catch (err) {
+    console.warn('deleteCommentFromSupabase error:', err);
+    throw err;
+  }
+};
+
+/**
  * 3. 공감(좋아요) 버튼: 클릭 시 해당 건의사항의 likes 숫자를 +1 올려서 DB UPDATE
  */
 export const incrementLikesInSupabase = async (
