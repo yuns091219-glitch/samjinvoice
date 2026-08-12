@@ -356,6 +356,29 @@ export default function App() {
       officialRole: isOfficial ? '학생회' : undefined,
     };
 
+    // Optimistically update React state immediately
+    setSuggestions((prev) =>
+      prev.map((s) => {
+        if (s.id === suggestionId) {
+          return {
+            ...s,
+            comments: [...(s.comments || []), newComment],
+          };
+        }
+        return s;
+      })
+    );
+
+    setSelectedSuggestion((prev) => {
+      if (prev && prev.id === suggestionId) {
+        return {
+          ...prev,
+          comments: [...(prev.comments || []), newComment],
+        };
+      }
+      return prev;
+    });
+
     let updatedPost: Suggestion | null = null;
 
     try {
@@ -388,24 +411,21 @@ export default function App() {
       }
     }
 
-    if (!updatedPost) {
-      const target = suggestions.find((s) => s.id === suggestionId);
-      if (target) {
-        updatedPost = {
-          ...target,
-          comments: [...(target.comments || []), newComment],
-        };
-      }
-    }
-
     if (updatedPost) {
       const finalPost = updatedPost;
-      setSuggestions((prev) => prev.map((s) => (s.id === suggestionId ? finalPost : s)));
-      if (selectedSuggestion?.id === suggestionId) {
-        setSelectedSuggestion(finalPost);
+      // Guarantee newComment is included in finalPost comments array
+      if (
+        !finalPost.comments ||
+        !finalPost.comments.some((c) => c.id === newComment.id || (c.content === newComment.content && c.authorNickname === newComment.authorNickname))
+      ) {
+        finalPost.comments = [...(finalPost.comments || []), newComment];
       }
-      showToast('💬 댓글이 작성되었습니다.');
+
+      setSuggestions((prev) => prev.map((s) => (s.id === suggestionId ? finalPost : s)));
+      setSelectedSuggestion((prev) => (prev && prev.id === suggestionId ? finalPost : prev));
     }
+
+    showToast('💬 댓글이 작성되었습니다.');
   };
 
   // Status & Official Response Update Handler

@@ -80,8 +80,26 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
         .catch(console.error);
     } else {
       setIsUnlocked(false);
+      setUnlockedSuggestion(null);
     }
   }, [suggestion?.id, isOpen, isAdmin]);
+
+  // Sync unlockedSuggestion when suggestion prop updates (e.g. new comments, upvotes, status)
+  useEffect(() => {
+    if (!suggestion) return;
+    if (unlockedSuggestion && unlockedSuggestion.id === suggestion.id) {
+      setUnlockedSuggestion((prev) => {
+        if (!prev) return suggestion;
+        return {
+          ...prev,
+          comments: suggestion.comments,
+          upvotes: suggestion.upvotes,
+          status: suggestion.status,
+          officialResponse: suggestion.officialResponse,
+        };
+      });
+    }
+  }, [suggestion]);
 
   const handleVerifyPin = async () => {
     if (!pinInput.trim()) {

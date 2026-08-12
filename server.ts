@@ -12,6 +12,7 @@ import {
   incrementLikesInSupabase,
   updateStatusInSupabase,
   deleteSuggestionFromSupabase,
+  addCommentToSupabase,
 } from './src/lib/supabase';
 
 // In-memory data store for the session
@@ -229,15 +230,9 @@ async function startServer() {
   });
 
   // Add comment
-  app.post('/api/suggestions/:id/comments', (req, res) => {
+  app.post('/api/suggestions/:id/comments', async (req, res) => {
     const { id } = req.params;
     const { authorNickname, content, isOfficial, officialRole } = req.body;
-
-    const index = suggestionsStore.findIndex((s) => s.id === id);
-    if (index === -1) {
-      res.status(404).json({ error: '건의글을 찾을 수 없습니다.' });
-      return;
-    }
 
     if (!content || !content.trim()) {
       res.status(400).json({ error: '댓글 내용을 입력해주세요.' });
@@ -253,11 +248,29 @@ async function startServer() {
       createdAt: new Date().toISOString(),
     };
 
-    suggestionsStore[index].comments.push(newComment);
-    suggestionsStore[index].updatedAt = new Date().toISOString();
+    try {
+      const updated = await addCommentToSupabase(id, newComment);
+      const idx = suggestionsStore.findIndex((s) => s.id === id);
+      if (idx !== -1) {
+        suggestionsStore[idx] = updated;
+      }
+      const { secretPin, ...safeUpdated } = updated;
+      res.json(safeUpdated);
+    } catch (err) {
+      const index = suggestionsStore.findIndex((s) => s.id === id);
+      if (index !== -1) {
+        if (!Array.isArray(suggestionsStore[index].comments)) {
+          suggestionsStore[index].comments = [];
+        }
+        suggestionsStore[index].comments.push(newComment);
+        suggestionsStore[index].updatedAt = new Date().toISOString();
 
-    const { secretPin, ...safeUpdated } = suggestionsStore[index];
-    res.json(safeUpdated);
+        const { secretPin, ...safeUpdated } = suggestionsStore[index];
+        res.json(safeUpdated);
+      } else {
+        res.status(404).json({ error: '건의글을 찾을 수 없습니다.' });
+      }
+    }
   });
 
   // Verify PIN for secret post or deletion
