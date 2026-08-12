@@ -1,0 +1,555 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Suggestion, Category, Status, Notice, AdminStats } from './types';
+import { Navbar } from './components/Navbar';
+import { SchoolInfoBanner } from './components/SchoolInfoBanner';
+import { CategoryFilterBar } from './components/CategoryFilterBar';
+import { SuggestionCard } from './components/SuggestionCard';
+import { SuggestionDetailModal } from './components/SuggestionDetailModal';
+import { SuggestionFormModal } from './components/SuggestionFormModal';
+import { AdminDashboard } from './components/AdminDashboard';
+import { NoticeModal } from './components/NoticeModal';
+import { MessageSquare, RefreshCw, AlertCircle, ShieldCheck, Lock, Search, Key, CheckCircle2 } from 'lucide-react';
+
+export default function App() {
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [notices, setNotices] = useState<Notice[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Upvoted suggestions tracking (persisted in localStorage)
+  const [upvotedIds, setUpvotedIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('samjin_upvoted_ids') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('samjin_upvoted_ids', JSON.stringify(upvotedIds));
+  }, [upvotedIds]);
+
+  // Filters (Used when in Admin Mode)
+  const [selectedCategory, setSelectedCategory] = useState<Category | 'ALL'>('ALL');
+  const [selectedStatus, setSelectedStatus] = useState<Status | 'ALL'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'latest' | 'upvotes' | 'comments'>('latest');
+
+  // Modals & Mode
+  const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion | null>(null);
+  const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPin, setAdminPin] = useState('ihateyou');
+
+  // Student Self-Lookup state
+  const [lookupId, setLookupId] = useState('');
+  const [lookupPin, setLookupPin] = useState('');
+  const [lookupResult, setLookupResult] = useState<Suggestion | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+
+  // Toast feedback
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => {
+      setToast(null);
+    }, 3000);
+  };
+
+  // Fetch initial suggestions from Express API
+  const fetchSuggestions = async () => {
+    try {
+      setLoading(true);
+      const queryParams = new URLSearchParams();
+      if (selectedCategory !== 'ALL') queryParams.append('category', selectedCategory);
+      if (selectedStatus !== 'ALL') queryParams.append('status', selectedStatus);
+      if (searchQuery.trim()) queryParams.append('search', searchQuery.trim());
+      queryParams.append('sort', sortBy);
+
+      const res = await fetch(`/api/suggestions?${queryParams.toString()}`);
+      if (!res.ok) throw new Error('건의사항 목록을 불러오지 못했습니다.');
+      const data = await res.json();
+      setSuggestions(data);
+      setError(null);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || '서버 통신 오류');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchNotices = async () => {
+    try {
+      const res = await fetch('/api/notices');
+      if (res.ok) setNotices(await res.json());
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotices();
+  }, []);
+
+  useEffect(() => {
+    fetchSuggestions();
+  }, [selectedCategory, selectedStatus, searchQuery, sortBy]);
+
+  // Admin stats computation
+  const stats: AdminStats = useMemo(() => {
+    const categoryCounts: Record<Category, number> = {
+      MEALS: 0,
+      FACILITY: 0,
+      ACADEMICS: 0,
+      STUDENT_COUNCIL: 0,
+      LIFE_RULES: 0,
+      OTHER: 0,
+    };
+
+    let receivedCount = 0;
+    let inReviewCount = 0;
+    let answeredCount = 0;
+    let appliedCount = 0;
+    let onHoldCount = 0;
+
+    const tagFreq: Record<string, number> = {};
+
+    suggestions.forEach((s) => {
+      if (categoryCounts[s.category] !== undefined) {
+        categoryCounts[s.category] += 1;
+      }
+      if (s.status === 'RECEIVED') receivedCount++;
+      else if (s.status === 'IN_REVIEW') inReviewCount++;
+      else if (s.status === 'ANSWERED') answeredCount++;
+      else if (s.status === 'APPLIED') appliedCount++;
+      else if (s.status === 'ON_HOLD') onHoldCount++;
+
+      s.tags?.forEach((t) => {
+        tagFreq[t] = (tagFreq[t] || 0) + 1;
+      });
+    });
+
+    const topTags = Object.entries(tagFreq)
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    return {
+      totalSuggestions: suggestions.length,
+      receivedCount,
+      inReviewCount,
+      answeredCount,
+      appliedCount,
+      onHoldCount,
+      categoryCounts,
+      topTags,
+    };
+  }, [suggestions]);
+
+  // Upvote / Toggle Handler
+  const handleUpvote = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const isAlreadyUpvoted = upvotedIds.includes(id);
+    const action = isAlreadyUpvoted ? 'downvote' : 'upvote';
+
+    try {
+      const res = await fetch(`/api/suggestions/${id}/upvote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSuggestions((prev) => prev.map((s) => (s.id === id ? updated : s)));
+        if (selectedSuggestion?.id === id) {
+          setSelectedSuggestion(updated);
+        }
+        if (isAlreadyUpvoted) {
+          setUpvotedIds((prev) => prev.filter((item) => item !== id));
+          showToast('🤍 공감을 취소했습니다.');
+        } else {
+          setUpvotedIds((prev) => [...prev, id]);
+          showToast('👍 건의글에 공감표시를 하였습니다!');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Add Comment Handler
+  const handleAddComment = async (
+    suggestionId: string,
+    authorNickname: string,
+    content: string,
+    isOfficial?: boolean
+  ) => {
+    try {
+      const res = await fetch(`/api/suggestions/${suggestionId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authorNickname,
+          content,
+          isOfficial,
+          officialRole: isOfficial ? '학생회' : undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        setSuggestions((prev) => prev.map((s) => (s.id === suggestionId ? updated : s)));
+        if (selectedSuggestion?.id === suggestionId) {
+          setSelectedSuggestion(updated);
+        }
+        showToast('💬 댓글이 작성되었습니다.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Status & Official Response Update Handler
+  const handleUpdateStatus = async (id: string, status: Status, responseContent?: string) => {
+    try {
+      const res = await fetch(`/api/suggestions/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status,
+          adminPin,
+          officialResponse: responseContent
+            ? {
+                authorName: '학생회장',
+                department: '제53대 삼진고 학생회',
+                content: responseContent,
+              }
+            : undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        setSuggestions((prev) => prev.map((s) => (s.id === id ? updated : s)));
+        if (selectedSuggestion?.id === id) {
+          setSelectedSuggestion(updated);
+        }
+        showToast('✅ 건의사항 상태 및 공식 답변이 업데이트되었습니다.');
+      } else {
+        const errData = await res.json();
+        alert(errData.error || '업데이트에 실패했습니다.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Create New Suggestion Handler
+  const handleCreateSuggestion = async (formData: {
+    category: Category;
+    title: string;
+    content: string;
+    authorNickname: string;
+    isSecret: boolean;
+    secretPin?: string;
+    tags: string[];
+  }) => {
+    try {
+      const res = await fetch('/api/suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      if (res.ok) {
+        const newPost = await res.json();
+        setSuggestions((prev) => [newPost, ...prev]);
+        showToast('🎉 새로운 익명 건의사항이 정상 등록되었습니다!');
+      } else {
+        alert('건의 등록 중 오류가 발생했습니다.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Delete Suggestion Handler
+  const handleDeleteSuggestion = async (id: string, pin?: string) => {
+    try {
+      const res = await fetch(`/api/suggestions/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin, adminPin }),
+      });
+
+      if (res.ok) {
+        setSuggestions((prev) => prev.filter((s) => s.id !== id));
+        if (selectedSuggestion?.id === id) {
+          setSelectedSuggestion(null);
+        }
+        showToast('🗑️ 건의글이 삭제되었습니다.');
+      } else {
+        const data = await res.json();
+        alert(data.error || '삭제 권한이 없습니다.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Student Lookup Handler
+  const handleStudentLookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLookupError(null);
+    setLookupResult(null);
+
+    if (!lookupId.trim()) {
+      setLookupError('건의글 번호나 제목 검색어를 입력해주세요.');
+      return;
+    }
+
+    const found = suggestions.find(
+      (s) =>
+        s.id.toLowerCase() === lookupId.trim().toLowerCase() ||
+        s.title.toLowerCase().includes(lookupId.trim().toLowerCase())
+    );
+
+    if (!found) {
+      setLookupError('해당 일치하는 건의글을 찾을 수 없습니다.');
+      return;
+    }
+
+    if (found.isSecret) {
+      if (!lookupPin.trim()) {
+        setLookupError('비밀글 조회를 위해 비밀번호(PIN 4자리)를 입력해주세요.');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/suggestions/${found.id}/verify-pin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: lookupPin.trim() }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.verified) {
+          const unlockedPost = data.suggestion || found;
+          setLookupResult(unlockedPost);
+          setSelectedSuggestion(unlockedPost);
+        } else {
+          setLookupError(data.error || '비밀글 비밀번호가 일치하지 않습니다.');
+        }
+      } catch (err) {
+        setLookupError('비밀번호 확인 중 오류가 발생했습니다.');
+      }
+      return;
+    }
+
+    setLookupResult(found);
+    setSelectedSuggestion(found);
+  };
+
+  // Admin Login
+  const handleLoginAdmin = (pin: string) => {
+    if (pin === 'ihateyou') {
+      setIsAdmin(true);
+      setAdminPin(pin);
+      showToast('🛡️ 학생회/교사 관리자 모드로 전환되었습니다.');
+      return true;
+    }
+    return false;
+  };
+
+  const handleLogoutAdmin = () => {
+    setIsAdmin(false);
+    showToast('🔒 관리자 모드가 해제되었습니다.');
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FDFCF9] text-[#2D2926] flex flex-col font-sans selection:bg-[#5F7161]/20">
+      
+      {/* Toast Popup Notification */}
+      {toast && (
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 z-50 bg-[#2D2926] text-white text-xs sm:text-sm font-bold px-4 py-3 rounded-2xl shadow-xl border border-[#4A443F] flex items-center justify-center sm:justify-start space-x-2 animate-in fade-in slide-in-from-bottom-5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toast}</span>
+        </div>
+      )}
+
+      {/* Top Navigation Navbar */}
+      <Navbar
+        isAdmin={isAdmin}
+        onToggleAdminMode={() => {
+          if (isAdmin) handleLogoutAdmin();
+          else setIsAdminDashboardOpen(true);
+        }}
+        onOpenCreateModal={() => setIsCreateModalOpen(true)}
+        onOpenAdminDashboard={() => setIsAdminDashboardOpen(true)}
+        stats={stats}
+      />
+
+      {/* School Info Banner */}
+      <SchoolInfoBanner
+        onOpenCreateModal={() => setIsCreateModalOpen(true)}
+      />
+
+      {/* Category Filter & Search Control Bar for All Users */}
+      <CategoryFilterBar
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        selectedStatus={selectedStatus}
+        onSelectStatus={setSelectedStatus}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        sortBy={sortBy}
+        onSortChange={setSortBy}
+      />
+
+      {/* Main Container */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 flex-1 w-full">
+        
+        <div>
+          {/* Section Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6 bg-[#F4F1EA] p-3.5 sm:p-4 rounded-2xl border border-[#E6E2D3]">
+            <div className="flex items-start sm:items-center space-x-2">
+              {isAdmin ? (
+                <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5 sm:mt-0" />
+              ) : (
+                <MessageSquare className="w-5 h-5 text-[#5F7161] shrink-0 mt-0.5 sm:mt-0" />
+              )}
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="font-extrabold text-[#2D2926] text-sm sm:text-lg">
+                    {isAdmin ? '[관리자] 익명 건의 목록' : '삼진고 익명 건의 목록'}
+                  </h2>
+                  <span className="text-[11px] sm:text-xs font-bold text-[#5F7161] bg-white border border-[#E6E2D3] px-2 py-0.5 rounded-full">
+                    총 {suggestions.length}건
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-[#8C8479] mt-0.5">
+                  🌐 공개 건의글은 최상단에 자동 등록되며, 🔒 비밀글은 설정한 PIN 번호로 열람하실 수 있습니다.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={fetchSuggestions}
+              className="self-end sm:self-auto text-xs text-[#8C8479] hover:text-[#2D2926] flex items-center gap-1 font-bold bg-white px-2.5 sm:px-3 py-1.5 rounded-xl border border-[#E6E2D3] hover:bg-[#F4F1EA] transition-colors shrink-0 active:scale-95"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>새로고침</span>
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="py-16 sm:py-20 text-center space-y-3">
+              <div className="w-8 h-8 border-4 border-[#5F7161] border-t-transparent rounded-full animate-spin mx-auto"></div>
+              <p className="text-xs text-[#8C8479] font-medium">건의사항 목록을 불러오는 중입니다...</p>
+            </div>
+          ) : error ? (
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-6 sm:p-8 text-center my-6 text-rose-800">
+              <AlertCircle className="w-8 h-8 text-rose-500 mx-auto mb-2" />
+              <p className="font-bold text-sm">{error}</p>
+              <button
+                onClick={fetchSuggestions}
+                className="mt-3 text-xs bg-rose-600 text-white font-bold px-4 py-2 rounded-xl"
+              >
+                다시 시도
+              </button>
+            </div>
+          ) : suggestions.length === 0 ? (
+            <div className="bg-white rounded-2xl sm:rounded-[32px] border border-[#E6E2D3] p-8 sm:p-12 text-center my-4 sm:my-6 space-y-3 sm:space-y-4 shadow-xs">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl bg-[#F4F1EA] text-[#5F7161] mx-auto flex items-center justify-center text-xl sm:text-2xl font-bold">
+                💬
+              </div>
+              <div>
+                <h3 className="font-bold text-[#2D2926] text-base sm:text-lg">등록된 건의사항이 없습니다</h3>
+                <p className="text-xs text-[#8C8479] mt-1">
+                  선택한 필터 조건에 부합하는 익명 건의글이 없습니다. 첫 번째 건의글을 작성해 보세요!
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
+              {suggestions.map((suggestion) => (
+                <SuggestionCard
+                  key={suggestion.id}
+                  suggestion={suggestion}
+                  onSelectCard={(s) => setSelectedSuggestion(s)}
+                  onUpvote={handleUpvote}
+                  isUpvoted={upvotedIds.includes(suggestion.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+      </main>
+
+      {/* Detail Modal */}
+      <SuggestionDetailModal
+        suggestion={selectedSuggestion}
+        isOpen={Boolean(selectedSuggestion)}
+        onClose={() => setSelectedSuggestion(null)}
+        onUpvote={handleUpvote}
+        onAddComment={handleAddComment}
+        onUpdateStatus={handleUpdateStatus}
+        onDeleteSuggestion={handleDeleteSuggestion}
+        isAdmin={isAdmin}
+        adminPin={adminPin}
+        isUpvoted={selectedSuggestion ? upvotedIds.includes(selectedSuggestion.id) : false}
+      />
+
+      {/* Create Modal */}
+      <SuggestionFormModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSubmit={handleCreateSuggestion}
+      />
+
+      {/* Admin Dashboard */}
+      <AdminDashboard
+        isOpen={isAdminDashboardOpen}
+        onClose={() => setIsAdminDashboardOpen(false)}
+        suggestions={suggestions}
+        stats={stats}
+        isAdmin={isAdmin}
+        onLoginAdmin={handleLoginAdmin}
+        onLogoutAdmin={handleLogoutAdmin}
+        onSelectSuggestion={(s) => {
+          setIsAdminDashboardOpen(false);
+          setSelectedSuggestion(s);
+        }}
+      />
+
+      {/* Notice Modal */}
+      <NoticeModal
+        notice={selectedNotice}
+        isOpen={Boolean(selectedNotice)}
+        onClose={() => setSelectedNotice(null)}
+      />
+
+      {/* Footer */}
+      <footer className="bg-[#F4F1EA] text-[#8C8479] text-xs py-8 border-t border-[#E6E2D3] mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-2">
+          <p className="font-bold text-[#2D2926]">
+            🏫 마산삼진고등학교 익명 소통 플랫폼 • 삼진소통 (Samjin Voice)
+          </p>
+          <p className="text-[11px] text-[#8C8479]">
+            경상남도 창원시 마산합포구 진동면 • 제53대 삼진고등학교 학생회 및 학생지도부 공동운영
+          </p>
+          <p className="text-[10px] text-[#8C8479] pt-1">
+            본 시스템은 학생의 익명성을 철저히 보호하며, 건설적이고 정중한 의견 제시 문화를 지향합니다.
+          </p>
+        </div>
+      </footer>
+
+    </div>
+  );
+}
+
