@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Suggestion, AdminStats, Status } from '../types';
+import { Suggestion, AdminStats, Status, normalizeCategory } from '../types';
+import { CATEGORY_LABELS } from './SuggestionCard';
 import { ShieldCheck, Award, CheckCircle2, Clock, FileSearch, AlertCircle, X, BarChart3, TrendingUp, KeyRound, Bot } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -222,7 +223,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center space-x-2 mb-0.5">
                           <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                            {s.category}
+                            {CATEGORY_LABELS[normalizeCategory(s.category)] || s.category}
                           </span>
                           <span className="text-xs font-bold text-slate-900 truncate">{s.title}</span>
                         </div>

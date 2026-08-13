@@ -109,7 +109,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
               className="w-full bg-[#F4F1EA] border border-[#E6E2D3] text-[#2D2926] text-xs font-semibold rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5F7161] cursor-pointer"
             >
               <option value="latest">최신순 ⏱️</option>
-              <option value="upvotes">공감순 🔥</option>
+              <option value="upvotes">공감/조회순 🔥</option>
               <option value="comments">댓글순 💬</option>
             </select>
           </div>

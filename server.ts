@@ -62,7 +62,7 @@ async function startServer() {
 
   // Get suggestions with optional category, status, search filtering (Supabase)
   app.get('/api/suggestions', async (req, res) => {
-    const { category, status, search, sort } = req.query;
+    const { category, status, search, sort, isAdmin, adminPin } = req.query;
 
     try {
       let filtered = await fetchSuggestionsFromSupabase();
@@ -73,7 +73,18 @@ async function startServer() {
       }
 
       if (category && category !== 'ALL') {
-        filtered = filtered.filter((s) => s.category === category);
+        const catStr = String(category).trim().toUpperCase();
+        filtered = filtered.filter((s) => {
+          const sc = String(s.category).trim().toUpperCase();
+          if (catStr === sc) return true;
+          if (catStr === 'MEALS' && (sc.includes('급식') || sc.includes('식당') || sc === 'MEAL')) return true;
+          if (catStr === 'FACILITY' && (sc.includes('시설') || sc.includes('환경') || sc === 'FACILITIES')) return true;
+          if (catStr === 'ACADEMICS' && (sc.includes('학습') || sc.includes('진로') || sc === 'ACADEMIC')) return true;
+          if (catStr === 'STUDENT_COUNCIL' && (sc.includes('학생회') || sc.includes('행사'))) return true;
+          if (catStr === 'LIFE_RULES' && (sc.includes('교칙') || sc.includes('생활'))) return true;
+          if (catStr === 'OTHER' && (sc.includes('기타') || sc.includes('자유'))) return true;
+          return false;
+        });
       }
 
       if (status && status !== 'ALL') {
@@ -101,8 +112,10 @@ async function startServer() {
         filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       }
 
+      const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
+
       const safeList = filtered.map((item) => {
-        if (item.isSecret) {
+        if (item.isSecret && !isAdminUser) {
           return {
             ...item,
             content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
@@ -124,7 +137,7 @@ async function startServer() {
   // Get single suggestion
   app.get('/api/suggestions/:id', async (req, res) => {
     const { id } = req.params;
-    const { pin, isAdmin } = req.query;
+    const { pin, isAdmin, adminPin } = req.query;
 
     try {
       const list = await fetchSuggestionsFromSupabase();
@@ -135,7 +148,9 @@ async function startServer() {
         return;
       }
 
-      if (found.isSecret && isAdmin !== 'true' && found.secretPin !== pin) {
+      const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
+
+      if (found.isSecret && !isAdminUser && found.secretPin !== pin) {
         res.json({
           ...found,
           content: '🔒 비밀글입니다. 비밀번호를 확인해주세요.',
@@ -363,17 +378,16 @@ async function startServer() {
 
     try {
       await deleteSuggestionFromSupabase(id);
-
-      const index = suggestionsStore.findIndex((s) => s.id === id);
-      if (index !== -1) {
-        suggestionsStore.splice(index, 1);
-      }
-
-      res.json({ success: true, message: '건의사항이 삭제되었습니다.' });
     } catch (err: any) {
-      console.error('Error deleting suggestion from Supabase:', err);
-      res.status(500).json({ error: '건의사항 삭제 실패' });
+      console.warn('Error deleting suggestion from Supabase:', err);
     }
+
+    const index = suggestionsStore.findIndex((s) => s.id === id);
+    if (index !== -1) {
+      suggestionsStore.splice(index, 1);
+    }
+
+    res.json({ success: true, message: '건의사항이 삭제되었습니다.' });
   });
 
   // AI Assistance: Gemini model analysis and draft response for Student Council

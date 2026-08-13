@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Suggestion, Category, Status } from '../types';
+import { Suggestion, Category, Status, normalizeCategory } from '../types';
 
 // Retrieve credentials from environment
 const meta = typeof import.meta !== 'undefined' ? (import.meta as any) : {};
@@ -60,7 +60,7 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
   const isSecret = row.is_anonymous ?? row.is_secret ?? false;
   return {
     id: String(row.id),
-    category: (row.category as Category) || 'OTHER',
+    category: normalizeCategory(row.category || row.category_name || row.cat || row.type),
     title: row.title || '제목 없음',
     content: row.content || '',
     authorNickname: row.author_name || row.author_nickname || row.author || '익명의 삼진인',

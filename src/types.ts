@@ -6,6 +6,18 @@ export type Category =
   | 'LIFE_RULES'       // 교칙/생활
   | 'OTHER';           // 기타/자유건의
 
+export const normalizeCategory = (cat?: string): Category => {
+  if (!cat) return 'OTHER';
+  const c = String(cat).trim().toUpperCase();
+  if (c === 'MEALS' || c === 'MEAL' || c.includes('급식') || c.includes('식당')) return 'MEALS';
+  if (c === 'FACILITY' || c === 'FACILITIES' || c.includes('시설') || c.includes('환경')) return 'FACILITY';
+  if (c === 'ACADEMICS' || c === 'ACADEMIC' || c.includes('학습') || c.includes('진로') || c.includes('공부')) return 'ACADEMICS';
+  if (c === 'STUDENT_COUNCIL' || c.includes('학생회') || c.includes('행사')) return 'STUDENT_COUNCIL';
+  if (c === 'LIFE_RULES' || c.includes('교칙') || c.includes('생활')) return 'LIFE_RULES';
+  if (c === 'OTHER' || c.includes('기타') || c.includes('자유')) return 'OTHER';
+  return 'OTHER';
+};
+
 export type Status = 
   | 'RECEIVED'   // 접수됨 (🟡)
   | 'IN_REVIEW'  // 검토 중 (🔵)

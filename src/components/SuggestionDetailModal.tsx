@@ -72,7 +72,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
       }
     } else if (isAdmin) {
       setIsUnlocked(true);
-      fetch(`/api/suggestions/${suggestion.id}?isAdmin=true`)
+      fetch(`/api/suggestions/${suggestion.id}?isAdmin=true&adminPin=${adminPin}`)
         .then((res) => res.json())
         .then((data) => {
           if (data && !data.error) {
@@ -84,7 +84,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
       setIsUnlocked(false);
       setUnlockedSuggestion(null);
     }
-  }, [suggestion?.id, isOpen, isAdmin]);
+  }, [suggestion?.id, isOpen, isAdmin, adminPin]);
 
   // Sync unlockedSuggestion when suggestion prop updates (e.g. new comments, upvotes, status)
   useEffect(() => {

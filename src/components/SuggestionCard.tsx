@@ -1,5 +1,5 @@
 import React from 'react';
-import { Suggestion, Status, Category } from '../types';
+import { Suggestion, Status, Category, normalizeCategory } from '../types';
 import { ThumbsUp, MessageSquare, Lock, CheckCircle2, Clock, FileSearch, AlertCircle, Award } from 'lucide-react';
 
 interface SuggestionCardProps {
@@ -73,7 +73,7 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             {/* Category Tag */}
             <span className="text-xs font-semibold bg-[#F4F1EA] text-[#4A443F] px-2.5 py-1 rounded-xl border border-[#E6E2D3]">
-              {CATEGORY_LABELS[suggestion.category]}
+              {CATEGORY_LABELS[normalizeCategory(suggestion.category)] || CATEGORY_LABELS['OTHER']}
             </span>
 
             {/* Status Badge */}

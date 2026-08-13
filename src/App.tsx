@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Suggestion, Category, Status, Notice, AdminStats } from './types';
+import { Suggestion, Category, Status, Notice, AdminStats, normalizeCategory } from './types';
 import { Navbar } from './components/Navbar';
 import { SchoolInfoBanner } from './components/SchoolInfoBanner';
 import { CategoryFilterBar } from './components/CategoryFilterBar';
@@ -100,17 +100,18 @@ export default function App() {
   const fetchSuggestions = async () => {
     try {
       setLoading(true);
-      const queryParams = new URLSearchParams();
-      if (selectedCategory !== 'ALL') queryParams.append('category', selectedCategory);
-      if (selectedStatus !== 'ALL') queryParams.append('status', selectedStatus);
-      if (searchQuery.trim()) queryParams.append('search', searchQuery.trim());
-      queryParams.append('sort', sortBy);
 
       let fetchedData: Suggestion[] | null = null;
 
       // 1. Try Express server API
       try {
-        const res = await fetch(`/api/suggestions?${queryParams.toString()}`);
+        const queryParams = new URLSearchParams();
+        if (isAdmin) {
+          queryParams.append('isAdmin', 'true');
+          if (adminPin) queryParams.append('adminPin', adminPin);
+        }
+        const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+        const res = await fetch(`/api/suggestions${queryString}`);
         if (res.ok) {
           const contentType = res.headers.get('content-type');
           if (contentType && contentType.includes('application/json')) {
@@ -125,21 +126,6 @@ export default function App() {
       if (!fetchedData) {
         try {
           fetchedData = await fetchSuggestionsFromSupabase();
-          if (selectedCategory !== 'ALL') {
-            fetchedData = fetchedData.filter((s) => s.category === selectedCategory);
-          }
-          if (selectedStatus !== 'ALL') {
-            fetchedData = fetchedData.filter((s) => s.status === selectedStatus);
-          }
-          if (searchQuery.trim()) {
-            const q = searchQuery.trim().toLowerCase();
-            fetchedData = fetchedData.filter(
-              (s) =>
-                s.title.toLowerCase().includes(q) ||
-                s.content.toLowerCase().includes(q) ||
-                s.tags?.some((t) => t.toLowerCase().includes(q))
-            );
-          }
         } catch (supabaseErr) {
           console.warn('Supabase direct fetch failed:', supabaseErr);
         }
@@ -162,35 +148,35 @@ export default function App() {
       if (fetchedData) {
         fetchedData = fetchedData.filter((s) => !s.id.startsWith('sug-default-'));
 
-        const cachedMap = new Map(cachedPosts.map((s) => [s.id, s]));
+        const remoteIds = new Set(fetchedData.map((s) => s.id));
+        // Only keep locally cached posts if they were created offline and never synced to server
+        const unsyncedLocal = cachedPosts.filter((s) => (s as any).isUnsynced && !remoteIds.has(s.id));
 
         const mergedList = fetchedData.map((remoteItem) => {
-          const cachedItem = cachedMap.get(remoteItem.id);
+          const cachedItem = cachedPosts.find((s) => s.id === remoteItem.id);
           if (!cachedItem) return remoteItem;
 
           const remoteComments = Array.isArray(remoteItem.comments) ? remoteItem.comments : [];
-          const cachedComments = Array.isArray(cachedItem.comments) ? cachedItem.comments : [];
-
-          // Merge comments from cached and remote to avoid dropping comments
-          const commentMap = new Map<string, any>();
-          cachedComments.forEach((c) => commentMap.set(c.id, c));
-          remoteComments.forEach((c) => commentMap.set(c.id, c));
+          // For non-admin user on author's browser: preserve author's own unmasked content
+          const isOwnerLocalPost = !isAdmin && cachedItem.isSecret && cachedItem.content && !cachedItem.content.startsWith('🔒 비밀글입니다');
 
           return {
             ...remoteItem,
-            comments: Array.from(commentMap.values()),
+            content: (isOwnerLocalPost && remoteItem.content?.startsWith('🔒 비밀글입니다'))
+              ? cachedItem.content
+              : remoteItem.content,
+            secretPin: cachedItem.secretPin || remoteItem.secretPin,
+            comments: remoteComments,
           };
         });
 
-        const remoteIds = new Set(fetchedData.map((s) => s.id));
-        const localOnly = cachedPosts.filter((s) => !remoteIds.has(s.id));
-        const combined = [...localOnly, ...mergedList];
+        const combined = [...unsyncedLocal, ...mergedList];
 
         const uniqueMap = new Map<string, Suggestion>();
         combined.forEach((item) => uniqueMap.set(item.id, item));
         const fullList = Array.from(uniqueMap.values()).filter((s) => !s.id.startsWith('sug-default-'));
 
-        // Sort by createdAt descending
+        // Sort by createdAt descending as default raw store order
         fullList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
         setSuggestions(fullList);
@@ -255,7 +241,48 @@ export default function App() {
       clearInterval(interval);
       window.removeEventListener('focus', onFocus);
     };
-  }, [selectedCategory, selectedStatus, searchQuery, sortBy]);
+  }, [isAdmin, adminPin]);
+
+  // Derived filtered & sorted list of suggestions
+  const filteredSuggestions = useMemo(() => {
+    return suggestions
+      .filter((s) => {
+        if (selectedCategory !== 'ALL') {
+          const catNorm = normalizeCategory(s.category);
+          const selNorm = normalizeCategory(selectedCategory);
+          if (catNorm !== selNorm) {
+            return false;
+          }
+        }
+        if (selectedStatus !== 'ALL' && s.status !== selectedStatus) {
+          return false;
+        }
+        if (searchQuery.trim()) {
+          const q = searchQuery.trim().toLowerCase();
+          const titleMatch = s.title?.toLowerCase().includes(q);
+          const contentMatch = s.content?.toLowerCase().includes(q);
+          const tagMatch = s.tags?.some((t) => t.toLowerCase().includes(q));
+          const authorMatch = s.authorNickname?.toLowerCase().includes(q);
+          if (!titleMatch && !contentMatch && !tagMatch && !authorMatch) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'upvotes') {
+          const diff = (b.upvotes || 0) - (a.upvotes || 0);
+          if (diff !== 0) return diff;
+        } else if (sortBy === 'comments') {
+          const aComments = Array.isArray(a.comments) ? a.comments.length : 0;
+          const bComments = Array.isArray(b.comments) ? b.comments.length : 0;
+          const diff = bComments - aComments;
+          if (diff !== 0) return diff;
+        }
+        // default: latest (최신순)
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [suggestions, selectedCategory, selectedStatus, searchQuery, sortBy]);
 
   // Admin stats computation
   const stats: AdminStats = useMemo(() => {
@@ -277,8 +304,9 @@ export default function App() {
     const tagFreq: Record<string, number> = {};
 
     suggestions.forEach((s) => {
-      if (categoryCounts[s.category] !== undefined) {
-        categoryCounts[s.category] += 1;
+      const cat = normalizeCategory(s.category);
+      if (categoryCounts[cat] !== undefined) {
+        categoryCounts[cat] += 1;
       }
       if (s.status === 'RECEIVED') receivedCount++;
       else if (s.status === 'IN_REVIEW') inReviewCount++;
@@ -825,7 +853,7 @@ export default function App() {
                     {isAdmin ? '[관리자] 익명 건의 목록' : '삼진고 익명 건의 목록'}
                   </h2>
                   <span className="text-[11px] sm:text-xs font-bold text-[#5F7161] bg-white border border-[#E6E2D3] px-2 py-0.5 rounded-full">
-                    총 {suggestions.length}건
+                    총 {filteredSuggestions.length}건
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-[#8C8479] mt-0.5">
@@ -859,7 +887,7 @@ export default function App() {
                 다시 시도
               </button>
             </div>
-          ) : suggestions.length === 0 ? (
+          ) : filteredSuggestions.length === 0 ? (
             <div className="bg-white rounded-2xl sm:rounded-[32px] border border-[#E6E2D3] p-8 sm:p-12 text-center my-4 sm:my-6 space-y-3 sm:space-y-4 shadow-xs">
               <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl bg-[#F4F1EA] text-[#5F7161] mx-auto flex items-center justify-center text-xl sm:text-2xl font-bold">
                 💬
@@ -873,7 +901,7 @@ export default function App() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
-              {suggestions.map((suggestion) => (
+              {filteredSuggestions.map((suggestion) => (
                 <SuggestionCard
                   key={suggestion.id}
                   suggestion={suggestion}

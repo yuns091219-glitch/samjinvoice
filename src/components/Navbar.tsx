@@ -35,11 +35,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                   <span className="text-xs text-[#8C8479] hidden sm:inline-block">익명 소통 창구</span>
                 </div>
-                <h1 className="text-base sm:text-xl font-bold tracking-tight text-[#2D2926] flex items-center gap-1.5">
-                  삼진소통함
-                  <span className="text-[10px] sm:text-xs font-normal text-[#8C8479] bg-[#E6E2D3]/60 px-1.5 sm:px-2 py-0.5 rounded-md border border-[#E6E2D3]">
-                    Voice
-                  </span>
+                <h1 className="text-base sm:text-xl font-bold tracking-tight text-[#2D2926]">
+                  삼진보이스
                 </h1>
               </div>
             </div>
