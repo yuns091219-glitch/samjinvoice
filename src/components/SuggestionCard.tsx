@@ -69,6 +69,11 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
       (suggestion.content && suggestion.content.startsWith('🔒 비밀글입니다'))
   );
 
+  let displayTags = suggestion.tags ? [...suggestion.tags] : ['#마산삼진고', '#건의사항'];
+  if (isSecret && !displayTags.includes('#비밀글')) {
+    displayTags.push('#비밀글');
+  }
+
   return (
     <div
       onClick={() => onSelectCard(suggestion)}
@@ -114,9 +119,9 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
         </p>
 
         {/* Tags */}
-        {suggestion.tags && suggestion.tags.length > 0 && (
+        {displayTags && displayTags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {suggestion.tags.map((tag, i) => (
+            {displayTags.map((tag, i) => (
               <span key={i} className="text-[11px] font-bold text-[#5F7161] bg-[#F4F1EA] px-2.5 py-0.5 rounded-lg border border-[#E6E2D3]">
                 {tag.startsWith('#') ? tag : `#${tag}`}
               </span>

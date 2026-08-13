@@ -64,6 +64,41 @@ async function startServer() {
     res.json(lunchStore);
   });
 
+function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, keepUnmaskedIfVerified: boolean = false): Suggestion {
+  const stringId = String(item.id);
+  const effectivePin = item.secretPin || secretPinStore.get(stringId);
+  const isItemSecret = Boolean(
+    item.isSecret ||
+      (Array.isArray(item.tags) && (item.tags.includes('#비밀글') || item.tags.includes('비밀글'))) ||
+      effectivePin ||
+      secretPinStore.has(stringId)
+  );
+
+  let itemTags = Array.isArray(item.tags) ? [...item.tags] : ['#마산삼진고', '#건의사항'];
+  if (isItemSecret && !itemTags.includes('#비밀글')) {
+    itemTags.push('#비밀글');
+  }
+
+  const { secretPin, ...safeItem } = item;
+
+  if (isItemSecret && !isAdminUser && !keepUnmaskedIfVerified) {
+    return {
+      ...safeItem,
+      id: stringId,
+      isSecret: true,
+      tags: itemTags,
+      content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
+    };
+  }
+
+  return {
+    ...safeItem,
+    id: stringId,
+    isSecret: isItemSecret,
+    tags: itemTags,
+  };
+}
+
   // Get suggestions with optional category, status, search filtering (Supabase)
   app.get('/api/suggestions', async (req, res) => {
     const { category, status, search, sort, isAdmin, adminPin } = req.query;
@@ -143,33 +178,16 @@ async function startServer() {
           originalContentStore.set(stringId, memItem.content);
         }
 
-        const isItemSecret = Boolean(
-          item.isSecret ||
-            memItem?.isSecret ||
-            (Array.isArray(item.tags) && (item.tags.includes('#비밀글') || item.tags.includes('비밀글'))) ||
-            effectivePin ||
-            secretPinStore.has(stringId)
+        const formatted = formatSafeSuggestion(
+          {
+            ...item,
+            comments,
+            secretPin: effectivePin,
+          },
+          isAdminUser
         );
 
-        const mergedItem = {
-          ...item,
-          isSecret: isItemSecret,
-          secretPin: effectivePin || secretPinStore.get(stringId),
-        };
-
-        if (isItemSecret && !isAdminUser) {
-          return {
-            ...mergedItem,
-            comments,
-            content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
-            secretPin: undefined,
-          };
-        }
-        const { secretPin, ...rest } = mergedItem;
-        return {
-          ...rest,
-          comments,
-        };
+        return formatted;
       });
 
       res.json(safeList);
@@ -177,25 +195,7 @@ async function startServer() {
       console.error('Error fetching suggestions from Supabase:', err);
       // Fallback to in-memory store if DB error occurs with proper secret masking
       const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
-      const safeMemory = suggestionsStore.map((item) => {
-        const stringId = String(item.id);
-        const effectivePin = item.secretPin || secretPinStore.get(stringId);
-        const isItemSecret = Boolean(
-          item.isSecret ||
-            (Array.isArray(item.tags) && (item.tags.includes('#비밀글') || item.tags.includes('비밀글'))) ||
-            effectivePin ||
-            secretPinStore.has(stringId)
-        );
-        if (isItemSecret && !isAdminUser) {
-          return {
-            ...item,
-            content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
-            secretPin: undefined,
-          };
-        }
-        const { secretPin, ...rest } = item;
-        return rest;
-      });
+      const safeMemory = suggestionsStore.map((item) => formatSafeSuggestion(item, isAdminUser));
       res.json(safeMemory);
     }
   });
@@ -285,13 +285,15 @@ async function startServer() {
 
       // Ensure isSecret and secretPin are explicitly preserved on newSuggestion
       newSuggestion.isSecret = Boolean(isSecret) || newSuggestion.isSecret;
+      const stringId = String(newSuggestion.id);
+      newSuggestion.id = stringId;
       if (secretPin) {
         const cleanPin = String(secretPin).trim();
         newSuggestion.secretPin = cleanPin;
-        secretPinStore.set(newSuggestion.id, cleanPin);
+        secretPinStore.set(stringId, cleanPin);
       }
       if (newSuggestion.content && !newSuggestion.content.startsWith('🔒 비밀글입니다')) {
-        originalContentStore.set(newSuggestion.id, newSuggestion.content);
+        originalContentStore.set(stringId, newSuggestion.content);
       }
 
       // Keep in-memory store updated
@@ -308,24 +310,26 @@ async function startServer() {
   // Upvote / Toggle suggestion (Supabase UPDATE likes)
   app.post('/api/suggestions/:id/upvote', async (req, res) => {
     const { id } = req.params;
+    const stringId = String(id);
     const { action } = req.body || {};
+    const { isAdmin, adminPin } = req.query;
+    const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
 
     try {
       // Get current likes from DB
-      const { data } = await supabase.from('suggestions').select('likes').eq('id', id).single();
+      const { data } = await supabase.from('suggestions').select('likes').eq('id', stringId).single();
       const currentLikes = data?.likes ?? 0;
       const delta = (action === 'downvote' || action === 'cancel') ? -1 : 1;
 
-      const updated = await incrementLikesInSupabase(id, currentLikes, delta);
+      const updated = await incrementLikesInSupabase(stringId, currentLikes, delta);
 
       // Update in-memory backup
-      const idx = suggestionsStore.findIndex((s) => s.id === id);
+      const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
       if (idx !== -1) {
         suggestionsStore[idx] = updated;
       }
 
-      const { secretPin, ...safeUpdated } = updated;
-      res.json(safeUpdated);
+      res.json(formatSafeSuggestion(updated, isAdminUser));
     } catch (err: any) {
       console.error('Error updating upvote in Supabase:', err);
       res.status(500).json({ error: '공감 업데이트 중 오류가 발생했습니다.' });
@@ -335,7 +339,10 @@ async function startServer() {
   // Add comment
   app.post('/api/suggestions/:id/comments', async (req, res) => {
     const { id } = req.params;
+    const stringId = String(id);
     const { authorNickname, content, isOfficial, officialRole } = req.body;
+    const { isAdmin, adminPin } = req.query;
+    const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
 
     if (!content || !content.trim()) {
       res.status(400).json({ error: '댓글 내용을 입력해주세요.' });
@@ -352,11 +359,11 @@ async function startServer() {
     };
 
     // Always update in-memory store
-    let memIdx = suggestionsStore.findIndex((s) => s.id === id);
+    let memIdx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
     if (memIdx === -1) {
       // Create memory record if missing
       const dummy: Suggestion = {
-        id,
+        id: stringId,
         category: 'OTHER',
         title: '',
         content: '',
@@ -382,7 +389,7 @@ async function startServer() {
     }
 
     try {
-      const updated = await addCommentToSupabase(id, newComment);
+      const updated = await addCommentToSupabase(stringId, newComment);
       // Ensure memory store comments are merged into updated
       const map = new Map<string, Comment>();
       (suggestionsStore[memIdx].comments || []).forEach((c) => map.set(c.id, c));
@@ -393,33 +400,33 @@ async function startServer() {
 
       suggestionsStore[memIdx] = updated;
 
-      const { secretPin, ...safeUpdated } = updated;
-      res.json(safeUpdated);
+      res.json(formatSafeSuggestion(updated, isAdminUser));
     } catch (err) {
-      const { secretPin, ...safeUpdated } = suggestionsStore[memIdx];
-      res.json(safeUpdated);
+      res.json(formatSafeSuggestion(suggestionsStore[memIdx], isAdminUser));
     }
   });
 
   // Delete comment
   app.delete('/api/suggestions/:suggestionId/comments/:commentId', async (req, res) => {
     const { suggestionId, commentId } = req.params;
+    const stringId = String(suggestionId);
+    const { isAdmin, adminPin } = req.query;
+    const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
+
     try {
-      const updated = await deleteCommentFromSupabase(suggestionId, commentId);
-      const idx = suggestionsStore.findIndex((s) => s.id === suggestionId);
+      const updated = await deleteCommentFromSupabase(stringId, commentId);
+      const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
       if (idx !== -1) {
         suggestionsStore[idx] = updated;
       }
-      const { secretPin, ...safeUpdated } = updated;
-      res.json(safeUpdated);
+      res.json(formatSafeSuggestion(updated, isAdminUser));
     } catch (err) {
-      const idx = suggestionsStore.findIndex((s) => s.id === suggestionId);
+      const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
       if (idx !== -1) {
         if (Array.isArray(suggestionsStore[idx].comments)) {
           suggestionsStore[idx].comments = suggestionsStore[idx].comments.filter((c) => c.id !== commentId);
         }
-        const { secretPin, ...safeUpdated } = suggestionsStore[idx];
-        res.json(safeUpdated);
+        res.json(formatSafeSuggestion(suggestionsStore[idx], isAdminUser));
       } else {
         res.status(404).json({ error: '건의글을 찾을 수 없습니다.' });
       }
@@ -448,18 +455,16 @@ async function startServer() {
       return;
     }
 
-    const storedPin = secretPinStore.get(stringId) || found.secretPin;
+    const storedPin = secretPinStore.get(stringId) || (found.secretPin ? String(found.secretPin).trim() : undefined);
 
-    // PIN Verification Logic:
-    // 1. If storedPin exists, check if cleanPin === storedPin
-    // 2. If storedPin is not set in DB/memory, verify if cleanPin is non-empty (e.g. 4 digits typed)
-    const isMatched = storedPin ? (String(storedPin).trim() === cleanPin) : (cleanPin.length > 0);
+    if (!storedPin) {
+      res.status(401).json({ verified: false, error: '설정된 비밀번호가 없거나 일치하지 않습니다.' });
+      return;
+    }
+
+    const isMatched = (storedPin === cleanPin);
 
     if (isMatched) {
-      if (cleanPin) {
-        secretPinStore.set(stringId, cleanPin);
-      }
-
       const realContent = originalContentStore.get(stringId) || found.content;
       const cleanContent = (realContent && !realContent.startsWith('🔒 비밀글입니다'))
         ? realContent
@@ -468,6 +473,7 @@ async function startServer() {
       const { secretPin, ...safeFound } = found;
       const unmaskedSuggestion = {
         ...safeFound,
+        id: stringId,
         content: cleanContent,
         isSecret: true,
       };
@@ -530,12 +536,11 @@ async function startServer() {
       }
     }
 
-    const storedPin = secretPinStore.get(stringId) || found?.secretPin;
+    const storedPin = secretPinStore.get(stringId) || (found?.secretPin ? String(found.secretPin).trim() : undefined);
 
     if (found && (storedPin || found.isSecret) && !isAdmin) {
       const cleanPin = String(pin || '').trim();
-      const isMatched = storedPin ? (String(storedPin).trim() === cleanPin) : (cleanPin.length > 0);
-      if (!isMatched) {
+      if (!storedPin || storedPin !== cleanPin) {
         res.status(401).json({ error: '삭제용 비밀번호가 일치하지 않습니다.' });
         return;
       }

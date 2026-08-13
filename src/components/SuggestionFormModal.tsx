@@ -74,6 +74,11 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
       return;
     }
 
+    const finalTags = [...tags];
+    if (isSecret && !finalTags.includes('#비밀글')) {
+      finalTags.push('#비밀글');
+    }
+
     onSubmit({
       category,
       title: title.trim(),
@@ -81,7 +86,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
       authorNickname: authorNickname.trim() || '익명의 삼진인',
       isSecret,
       secretPin: isSecret ? secretPin.trim() : undefined,
-      tags,
+      tags: finalTags,
     });
 
     // Reset Form

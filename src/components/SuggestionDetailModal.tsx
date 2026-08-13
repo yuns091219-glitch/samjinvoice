@@ -58,8 +58,6 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   useEffect(() => {
     setPinInput('');
     setPinError('');
-    setUnlockedSuggestion(null);
-    setCommentNickname(getRandomAnonymousNickname());
 
     if (!suggestion) return;
 
@@ -82,11 +80,16 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
         })
         .catch(console.error);
     } else if (isSecretPost) {
-      // 비밀글일 경우 일반 사용자는 무조건 PIN 입력 창을 띄움
-      setIsUnlocked(false);
-      setUnlockedSuggestion(null);
+      // Check if suggestion content is already unmasked
+      if (suggestion.content && !suggestion.content.startsWith('🔒 비밀글입니다')) {
+        setIsUnlocked(true);
+        setUnlockedSuggestion(suggestion);
+      } else {
+        setIsUnlocked(false);
+        setUnlockedSuggestion(null);
+      }
     } else {
-      // 일반 공개글인 경우 바로 열람
+      // Regular public post
       setIsUnlocked(true);
       setUnlockedSuggestion(suggestion);
     }
@@ -127,117 +130,47 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     setPinError('');
     setIsVerifying(true);
 
-    let unlockedObj: Suggestion | null = null;
-
-    const markAndCacheUnlocked = (obj: Suggestion) => {
-      try {
-        const stringId = String(suggestion.id);
-        const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
-        if (!myIds.map(String).includes(stringId)) {
-          myIds.push(suggestion.id);
-          localStorage.setItem('samjin_my_post_ids', JSON.stringify(myIds));
-        }
-
-        const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
-        const idx = localPosts.findIndex((p: any) => String(p.id) === stringId);
-        if (idx !== -1) {
-          localPosts[idx] = obj;
-        } else {
-          localPosts.push(obj);
-        }
-        localStorage.setItem('samjin_local_suggestions', JSON.stringify(localPosts));
-
-        const persistentPosts = JSON.parse(localStorage.getItem('samjin_suggestions_persistent_v1') || '[]');
-        const pIdx = persistentPosts.findIndex((p: any) => String(p.id) === stringId);
-        if (pIdx !== -1) {
-          persistentPosts[pIdx] = { ...persistentPosts[pIdx], ...obj };
-          localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(persistentPosts));
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    };
-
-    // 1. Local PIN Check
-    let localItem: any = null;
     try {
-      const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
-      const persistentPosts = JSON.parse(localStorage.getItem('samjin_suggestions_persistent_v1') || '[]');
-      localItem = localPosts.find((p: any) => String(p.id) === String(suggestion.id)) ||
-                  persistentPosts.find((p: any) => String(p.id) === String(suggestion.id));
-    } catch (e) {
-      console.error(e);
-    }
+      const res = await fetch(`/api/suggestions/${suggestion.id}/verify-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: typedPin }),
+      });
+      const data = await res.json();
 
-    const knownPin = suggestion.secretPin || localItem?.secretPin;
-    const knownContent = (localItem?.content && !localItem.content.startsWith('🔒 비밀글입니다'))
-      ? localItem.content
-      : (suggestion.content && !suggestion.content.startsWith('🔒 비밀글입니다'))
-        ? suggestion.content
-        : null;
+      if (res.ok && data.verified && data.suggestion) {
+        setIsUnlocked(true);
+        setPinError('');
+        setUnlockedSuggestion(data.suggestion);
 
-    if (knownPin && String(knownPin).trim() === typedPin) {
-      unlockedObj = {
-        ...suggestion,
-        ...(localItem || {}),
-        content: knownContent || suggestion.content,
-        isSecret: true,
-      };
-    }
-
-    // 2. Server verification if not unlocked via local known PIN
-    if (!unlockedObj) {
-      try {
-        const res = await fetch(`/api/suggestions/${suggestion.id}/verify-pin`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pin: typedPin }),
-        });
-        const data = await res.json();
-
-        if (res.ok && data.verified) {
-          let cleanContent = data.suggestion?.content;
-          if (!cleanContent || cleanContent.startsWith('🔒 비밀글입니다')) {
-            cleanContent = knownContent || suggestion.content;
+        // Cache unlocked post in LocalStorage
+        try {
+          const stringId = String(suggestion.id);
+          const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
+          if (!myIds.map(String).includes(stringId)) {
+            myIds.push(stringId);
+            localStorage.setItem('samjin_my_post_ids', JSON.stringify(myIds));
           }
 
-          unlockedObj = {
-            ...suggestion,
-            ...(data.suggestion || {}),
-            content: cleanContent,
-            isSecret: true,
-          };
-        } else if (!res.ok && knownContent && (!knownPin || String(knownPin).trim() === typedPin)) {
-          unlockedObj = {
-            ...suggestion,
-            content: knownContent,
-            isSecret: true,
-          };
-        } else {
-          setPinError(data.error || '비밀번호가 일치하지 않습니다.');
+          const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
+          const idx = localPosts.findIndex((p: any) => String(p.id) === stringId);
+          if (idx !== -1) {
+            localPosts[idx] = data.suggestion;
+          } else {
+            localPosts.push(data.suggestion);
+          }
+          localStorage.setItem('samjin_local_suggestions', JSON.stringify(localPosts));
+        } catch (e) {
+          console.error(e);
         }
-      } catch (err) {
-        if (knownContent && (!knownPin || String(knownPin).trim() === typedPin)) {
-          unlockedObj = {
-            ...suggestion,
-            content: knownContent,
-            isSecret: true,
-          };
-        } else {
-          setPinError('비밀번호 확인 중 오류가 발생했습니다.');
-        }
+      } else {
+        setPinError(data.error || '비밀번호가 일치하지 않습니다.');
       }
+    } catch (err) {
+      setPinError('비밀번호 확인 중 오류가 발생했습니다.');
+    } finally {
+      setIsVerifying(false);
     }
-
-    // 3. Final Unlock Action
-    if (unlockedObj) {
-      setIsUnlocked(true);
-      setPinError('');
-      setUnlockedSuggestion(unlockedObj);
-      markAndCacheUnlocked(unlockedObj);
-    }
-
-    setIsVerifying(false);
   };
 
   const handleCommentSubmit = (e: React.FormEvent) => {

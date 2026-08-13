@@ -59,19 +59,38 @@ const mapStatusToDB = (status: Status): string => {
 export const mapRowToSuggestion = (row: any): Suggestion => {
   const tagsArr = Array.isArray(row.tags) ? row.tags : [];
   
-  let isSecret = Boolean(row.is_secret);
-  if (row.secret_pin && String(row.secret_pin).trim().length > 0) {
-    isSecret = true;
+  let rawContent = String(row.content || '');
+  let rawTitle = String(row.title || '제목 없음');
+  
+  let extractedPin: string | undefined = undefined;
+  
+  // Extract secret pin from content marker [SECRET_POST:1234] if present
+  const pinMatch = rawContent.match(/\[SECRET_POST:([^\]]*)\]/);
+  if (pinMatch) {
+    extractedPin = pinMatch[1] ? pinMatch[1].trim() : undefined;
   }
+
+  // Clean title & content from markers
+  rawTitle = rawTitle.replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+  rawContent = rawContent.replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+
+  let isSecret = Boolean(row.is_secret) || Boolean(extractedPin) || Boolean(row.secret_pin && String(row.secret_pin).trim().length > 0);
   if (tagsArr.includes('#비밀글') || tagsArr.includes('비밀글')) {
     isSecret = true;
   }
-  if ((row.content && String(row.content).includes('[SECRET_POST]')) || (row.title && String(row.title).includes('[SECRET_POST]'))) {
+  if (String(row.content || '').includes('[SECRET_POST]') || String(row.title || '').includes('[SECRET_POST]')) {
     isSecret = true;
   }
 
-  const rawTitle = String(row.title || '제목 없음').replace(/\[SECRET_POST\]\s*/g, '');
-  const rawContent = String(row.content || '').replace(/\[SECRET_POST\]\s*/g, '');
+  const finalPin = (row.secret_pin && String(row.secret_pin).trim().length > 0)
+    ? String(row.secret_pin).trim()
+    : extractedPin;
+
+  const defaultTags = isSecret ? ['#마산삼진고', '#건의사항', '#비밀글'] : ['#마산삼진고', '#건의사항'];
+  let finalTags = tagsArr.length > 0 ? [...tagsArr] : defaultTags;
+  if (isSecret && !finalTags.includes('#비밀글')) {
+    finalTags.push('#비밀글');
+  }
 
   return {
     id: String(row.id),
@@ -80,10 +99,10 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     content: rawContent,
     authorNickname: row.author_name || row.author_nickname || row.author || '익명의 삼진인',
     isSecret,
-    secretPin: row.secret_pin ? String(row.secret_pin) : undefined,
+    secretPin: finalPin || undefined,
     upvotes: Number(row.likes ?? row.upvotes ?? 0),
     status: mapStatusFromDB(row.status),
-    tags: tagsArr.length > 0 ? tagsArr : ['#마산삼진고', '#건의사항'],
+    tags: finalTags,
     imageUrl: row.image_url || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.created_at || new Date().toISOString(),
@@ -137,7 +156,10 @@ export const insertSuggestionToSupabase = async (payload: {
   }
 
   const pin = payload.secretPin?.trim() || null;
-  const cleanContent = payload.content.trim();
+  const rawClean = payload.content.trim();
+  const cleanContent = payload.isSecret
+    ? `[SECRET_POST:${pin || ''}] ${rawClean}`
+    : rawClean;
 
   // Try multiple variant payloads to match whichever column names exist in the remote Supabase table
   const insertVariants = [

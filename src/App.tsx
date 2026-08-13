@@ -467,11 +467,36 @@ export default function App() {
     }
 
     if (updatedPost) {
-      const finalPost = updatedPost;
-      setSuggestions((prev) => prev.map((s) => (s.id === id ? finalPost : s)));
-      if (selectedSuggestion?.id === id) {
-        setSelectedSuggestion(finalPost);
-      }
+      const resp = updatedPost;
+      setSuggestions((prev) =>
+        prev.map((s) => {
+          if (String(s.id) === String(id)) {
+            const isSecretPost = Boolean(s.isSecret || resp.isSecret || s.tags?.includes('#비밀글') || resp.tags?.includes('#비밀글'));
+            let combinedTags = Array.from(new Set([...(s.tags || []), ...(resp.tags || [])]));
+            if (isSecretPost && !combinedTags.includes('#비밀글')) {
+              combinedTags.push('#비밀글');
+            }
+            const preservedContent = (s.content && !s.content.startsWith('🔒 비밀글입니다'))
+              ? s.content
+              : resp.content;
+
+            const merged: Suggestion = {
+              ...s,
+              ...resp,
+              id: String(s.id),
+              isSecret: isSecretPost,
+              tags: combinedTags,
+              content: preservedContent,
+            };
+            if (selectedSuggestion?.id === id) {
+              setSelectedSuggestion(merged);
+            }
+            return merged;
+          }
+          return s;
+        })
+      );
+
       if (isAlreadyUpvoted) {
         setUpvotedIds((prev) => prev.filter((item) => item !== id));
         showToast('🤍 공감을 취소했습니다.');
@@ -560,17 +585,42 @@ export default function App() {
     }
 
     if (updatedPost) {
-      const finalPost = updatedPost;
-      // Guarantee newComment is included in finalPost comments array
+      const resp = updatedPost;
+      // Guarantee newComment is included in resp comments array
       if (
-        !finalPost.comments ||
-        !finalPost.comments.some((c) => c.id === newComment.id || (c.content === newComment.content && c.authorNickname === newComment.authorNickname))
+        !resp.comments ||
+        !resp.comments.some((c) => c.id === newComment.id || (c.content === newComment.content && c.authorNickname === newComment.authorNickname))
       ) {
-        finalPost.comments = [...(finalPost.comments || []), newComment];
+        resp.comments = [...(resp.comments || []), newComment];
       }
 
       setSuggestions((prev) => {
-        const next = prev.map((s) => (s.id === suggestionId ? finalPost : s));
+        const next = prev.map((s) => {
+          if (String(s.id) === String(suggestionId)) {
+            const isSecretPost = Boolean(s.isSecret || resp.isSecret || s.tags?.includes('#비밀글') || resp.tags?.includes('#비밀글'));
+            let combinedTags = Array.from(new Set([...(s.tags || []), ...(resp.tags || [])]));
+            if (isSecretPost && !combinedTags.includes('#비밀글')) {
+              combinedTags.push('#비밀글');
+            }
+            const preservedContent = (s.content && !s.content.startsWith('🔒 비밀글입니다'))
+              ? s.content
+              : resp.content;
+
+            const merged: Suggestion = {
+              ...s,
+              ...resp,
+              id: String(s.id),
+              isSecret: isSecretPost,
+              tags: combinedTags,
+              content: preservedContent,
+            };
+            if (selectedSuggestion?.id === suggestionId) {
+              setSelectedSuggestion(merged);
+            }
+            return merged;
+          }
+          return s;
+        });
         try {
           localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(next));
         } catch (e) {
@@ -578,7 +628,6 @@ export default function App() {
         }
         return next;
       });
-      setSelectedSuggestion((prev) => (prev && prev.id === suggestionId ? finalPost : prev));
     }
 
     showToast('💬 댓글이 작성되었습니다.');
@@ -692,11 +741,35 @@ export default function App() {
     }
 
     if (updatedPost) {
-      const finalPost = updatedPost;
-      setSuggestions((prev) => prev.map((s) => (s.id === id ? finalPost : s)));
-      if (selectedSuggestion?.id === id) {
-        setSelectedSuggestion(finalPost);
-      }
+      const resp = updatedPost;
+      setSuggestions((prev) =>
+        prev.map((s) => {
+          if (String(s.id) === String(id)) {
+            const isSecretPost = Boolean(s.isSecret || resp.isSecret || s.tags?.includes('#비밀글') || resp.tags?.includes('#비밀글'));
+            let combinedTags = Array.from(new Set([...(s.tags || []), ...(resp.tags || [])]));
+            if (isSecretPost && !combinedTags.includes('#비밀글')) {
+              combinedTags.push('#비밀글');
+            }
+            const preservedContent = (s.content && !s.content.startsWith('🔒 비밀글입니다'))
+              ? s.content
+              : resp.content;
+
+            const merged: Suggestion = {
+              ...s,
+              ...resp,
+              id: String(s.id),
+              isSecret: isSecretPost,
+              tags: combinedTags,
+              content: preservedContent,
+            };
+            if (selectedSuggestion?.id === id) {
+              setSelectedSuggestion(merged);
+            }
+            return merged;
+          }
+          return s;
+        })
+      );
       showToast('✅ 건의사항 상태 및 공식 답변이 업데이트되었습니다.');
     }
   };
@@ -853,6 +926,7 @@ export default function App() {
         return;
       }
       let verified = false;
+      let unmaskedSuggestion: Suggestion | null = null;
 
       try {
         const res = await fetch(`/api/suggestions/${found.id}/verify-pin`, {
@@ -864,7 +938,10 @@ export default function App() {
           const contentType = res.headers.get('content-type');
           if (contentType && contentType.includes('application/json')) {
             const data = await res.json();
-            if (data.verified) verified = true;
+            if (data.verified) {
+              verified = true;
+              unmaskedSuggestion = data.suggestion;
+            }
           }
         }
       } catch (err) {
@@ -881,9 +958,10 @@ export default function App() {
       }
 
       if (verified) {
+        const targetObj = unmaskedSuggestion || found;
         markAsMyPost(found.id);
-        setLookupResult(found);
-        setSelectedSuggestion(found);
+        setLookupResult(targetObj);
+        setSelectedSuggestion(targetObj);
       } else {
         setLookupError('비밀글 비밀번호(PIN)가 일치하지 않습니다.');
       }
