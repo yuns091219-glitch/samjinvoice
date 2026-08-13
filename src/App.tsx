@@ -765,6 +765,18 @@ export default function App() {
         createdPost.secretPin = formData.secretPin;
       }
       markAsMyPost(createdPost.id);
+
+      try {
+        const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
+        localPosts.unshift(createdPost);
+        localStorage.setItem('samjin_local_suggestions', JSON.stringify(localPosts));
+
+        const persistentPosts = JSON.parse(localStorage.getItem('samjin_suggestions_persistent_v1') || '[]');
+        persistentPosts.unshift(createdPost);
+        localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(persistentPosts));
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     setSuggestions((prev) => [createdPost!, ...prev]);

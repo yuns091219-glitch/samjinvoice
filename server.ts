@@ -120,7 +120,7 @@ async function startServer() {
 
       const safeList = filtered.map((item) => {
         // Merge comments with memory store if memory store has comments
-        const memItem = suggestionsStore.find((s) => s.id === item.id);
+        const memItem = suggestionsStore.find((s) => String(s.id) === String(item.id));
         let comments = Array.isArray(item.comments) ? item.comments : [];
         if (memItem && Array.isArray(memItem.comments) && memItem.comments.length > 0) {
           const map = new Map<string, any>();
@@ -131,15 +131,16 @@ async function startServer() {
           );
         }
 
-        const effectivePin = item.secretPin || memItem?.secretPin;
+        const stringId = String(item.id);
+        const effectivePin = item.secretPin || memItem?.secretPin || secretPinStore.get(stringId);
         if (effectivePin) {
-          secretPinStore.set(item.id, String(effectivePin).trim());
+          secretPinStore.set(stringId, String(effectivePin).trim());
         }
 
         if (item.content && !item.content.startsWith('🔒 비밀글입니다')) {
-          originalContentStore.set(item.id, item.content);
+          originalContentStore.set(stringId, item.content);
         } else if (memItem?.content && !memItem.content.startsWith('🔒 비밀글입니다')) {
-          originalContentStore.set(item.id, memItem.content);
+          originalContentStore.set(stringId, memItem.content);
         }
 
         const isItemSecret = Boolean(
@@ -147,13 +148,13 @@ async function startServer() {
             memItem?.isSecret ||
             (Array.isArray(item.tags) && (item.tags.includes('#비밀글') || item.tags.includes('비밀글'))) ||
             effectivePin ||
-            secretPinStore.has(item.id)
+            secretPinStore.has(stringId)
         );
 
         const mergedItem = {
           ...item,
           isSecret: isItemSecret,
-          secretPin: effectivePin || secretPinStore.get(item.id),
+          secretPin: effectivePin || secretPinStore.get(stringId),
         };
 
         if (isItemSecret && !isAdminUser) {
@@ -182,23 +183,24 @@ async function startServer() {
   // Get single suggestion
   app.get('/api/suggestions/:id', async (req, res) => {
     const { id } = req.params;
+    const stringId = String(id);
     const { pin, isAdmin, adminPin } = req.query;
 
     try {
       const list = await fetchSuggestionsFromSupabase();
-      let found = suggestionsStore.find((s) => s.id === id) || list.find((s) => s.id === id);
+      let found = suggestionsStore.find((s) => String(s.id) === stringId) || list.find((s) => String(s.id) === stringId);
 
       if (!found) {
         res.status(404).json({ error: '건의사항을 찾을 수 없습니다.' });
         return;
       }
 
-      const storedPin = secretPinStore.get(id) || found.secretPin;
+      const storedPin = secretPinStore.get(stringId) || found.secretPin;
       const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
       const cleanPin = pin ? String(pin).trim() : '';
       const isPinCorrect = storedPin ? (storedPin === cleanPin) : Boolean(cleanPin);
 
-      const realContent = originalContentStore.get(id) || found.content;
+      const realContent = originalContentStore.get(stringId) || found.content;
 
       if (found.isSecret && !isAdminUser && !isPinCorrect) {
         res.json({
@@ -407,14 +409,15 @@ async function startServer() {
   // Verify PIN for secret post or deletion
   app.post('/api/suggestions/:id/verify-pin', async (req, res) => {
     const { id } = req.params;
+    const stringId = String(id);
     const { pin } = req.body;
     const cleanPin = String(pin || '').trim();
 
-    let found = suggestionsStore.find((s) => s.id === id);
+    let found = suggestionsStore.find((s) => String(s.id) === stringId);
     if (!found) {
       try {
         const list = await fetchSuggestionsFromSupabase();
-        found = list.find((s) => s.id === id);
+        found = list.find((s) => String(s.id) === stringId);
       } catch (e) {
         // ignore error
       }
@@ -425,19 +428,19 @@ async function startServer() {
       return;
     }
 
-    const storedPin = secretPinStore.get(id) || found.secretPin;
+    const storedPin = secretPinStore.get(stringId) || found.secretPin;
 
     // PIN Verification Logic:
     // 1. If storedPin exists, check if cleanPin === storedPin
     // 2. If storedPin is not set in DB/memory, verify if cleanPin is non-empty (e.g. 4 digits typed)
-    const isMatched = storedPin ? (storedPin === cleanPin) : (cleanPin.length > 0);
+    const isMatched = storedPin ? (String(storedPin).trim() === cleanPin) : (cleanPin.length > 0);
 
     if (isMatched) {
       if (cleanPin) {
-        secretPinStore.set(id, cleanPin);
+        secretPinStore.set(stringId, cleanPin);
       }
 
-      const realContent = originalContentStore.get(id) || found.content;
+      const realContent = originalContentStore.get(stringId) || found.content;
       const cleanContent = (realContent && !realContent.startsWith('🔒 비밀글입니다'))
         ? realContent
         : found.content;
@@ -492,25 +495,26 @@ async function startServer() {
   // Delete suggestion (Supabase DELETE)
   app.delete('/api/suggestions/:id', async (req, res) => {
     const { id } = req.params;
+    const stringId = String(id);
     const { pin, adminPin } = req.body;
 
     const isAdmin = adminPin === 'fldkzh';
 
-    let found = suggestionsStore.find((s) => s.id === id);
+    let found = suggestionsStore.find((s) => String(s.id) === stringId);
     if (!found) {
       try {
         const list = await fetchSuggestionsFromSupabase();
-        found = list.find((s) => s.id === id);
+        found = list.find((s) => String(s.id) === stringId);
       } catch (e) {
         // ignore
       }
     }
 
-    const storedPin = secretPinStore.get(id) || found?.secretPin;
+    const storedPin = secretPinStore.get(stringId) || found?.secretPin;
 
     if (found && (storedPin || found.isSecret) && !isAdmin) {
       const cleanPin = String(pin || '').trim();
-      const isMatched = storedPin ? (storedPin === cleanPin) : (cleanPin.length > 0);
+      const isMatched = storedPin ? (String(storedPin).trim() === cleanPin) : (cleanPin.length > 0);
       if (!isMatched) {
         res.status(401).json({ error: '삭제용 비밀번호가 일치하지 않습니다.' });
         return;
@@ -523,7 +527,7 @@ async function startServer() {
       console.warn('Error deleting suggestion from Supabase:', err);
     }
 
-    const index = suggestionsStore.findIndex((s) => s.id === id);
+    const index = suggestionsStore.findIndex((s) => String(s.id) === stringId);
     if (index !== -1) {
       suggestionsStore.splice(index, 1);
     }

@@ -72,12 +72,40 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
 
     const isAlreadyUnmasked = suggestion.content && !suggestion.content.startsWith('🔒 비밀글입니다');
 
-    if (!isSecretPost || isAlreadyUnmasked) {
-      setIsUnlocked(true);
-      if (isAlreadyUnmasked) {
-        setUnlockedSuggestion(suggestion);
+    // Check if post ID is marked in my_post_ids or cached unmasked in local storage
+    let localContent: string | null = null;
+    let localFoundObj: any = null;
+    try {
+      const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]').map(String);
+      const isMyPost = myIds.includes(String(suggestion.id));
+
+      const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
+      const persistentPosts = JSON.parse(localStorage.getItem('samjin_suggestions_persistent_v1') || '[]');
+      localFoundObj = localPosts.find((p: any) => String(p.id) === String(suggestion.id)) ||
+                      persistentPosts.find((p: any) => String(p.id) === String(suggestion.id));
+
+      if (localFoundObj?.content && !localFoundObj.content.startsWith('🔒 비밀글입니다')) {
+        localContent = localFoundObj.content;
       }
-    } else if (isAdmin) {
+
+      if (!isSecretPost || isAlreadyUnmasked || isMyPost || localContent) {
+        setIsUnlocked(true);
+        const resolvedContent = isAlreadyUnmasked
+          ? suggestion.content
+          : (localContent || suggestion.content);
+        setUnlockedSuggestion({
+          ...suggestion,
+          ...(localFoundObj || {}),
+          content: resolvedContent,
+          isSecret: isSecretPost,
+        });
+        return;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    if (isAdmin) {
       setIsUnlocked(true);
       fetch(`/api/suggestions/${suggestion.id}?isAdmin=true&adminPin=${adminPin}`)
         .then((res) => res.json())
@@ -96,7 +124,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   // Sync unlockedSuggestion when suggestion prop updates (e.g. new comments, upvotes, status)
   useEffect(() => {
     if (!suggestion) return;
-    if (unlockedSuggestion && unlockedSuggestion.id === suggestion.id) {
+    if (unlockedSuggestion && String(unlockedSuggestion.id) === String(suggestion.id)) {
       setUnlockedSuggestion((prev) => {
         if (!prev) return suggestion;
         const prevComments = prev.comments || [];
@@ -120,60 +148,125 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   }, [suggestion]);
 
   const handleVerifyPin = async () => {
-    if (!pinInput.trim()) {
+    const typedPin = pinInput.trim();
+    if (!typedPin) {
       setPinError('비밀번호 4자리를 입력해 주세요.');
       return;
     }
     setPinError('');
     setIsVerifying(true);
 
-    try {
-      const res = await fetch(`/api/suggestions/${suggestion.id}/verify-pin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: pinInput.trim() }),
-      });
-      const data = await res.json();
+    let unlockedObj: Suggestion | null = null;
 
-      if (res.ok && data.verified) {
-        setIsUnlocked(true);
-        setPinError('');
-
-        const unmaskedObj = data.suggestion || {
-          ...suggestion,
-          isSecret: true,
-        };
-
-        setUnlockedSuggestion(unmaskedObj);
-
-        try {
-          // 1. Mark as my post ID so App.tsx does not re-mask it
-          const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
-          if (!myIds.includes(suggestion.id)) {
-            myIds.push(suggestion.id);
-            localStorage.setItem('samjin_my_post_ids', JSON.stringify(myIds));
-          }
-
-          // 2. Cache unmasked suggestion in local storage
-          const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
-          const idx = localPosts.findIndex((p: any) => p.id === suggestion.id);
-          if (idx !== -1) {
-            localPosts[idx] = unmaskedObj;
-          } else {
-            localPosts.push(unmaskedObj);
-          }
-          localStorage.setItem('samjin_local_suggestions', JSON.stringify(localPosts));
-        } catch (e) {
-          console.error(e);
+    const markAndCacheUnlocked = (obj: Suggestion) => {
+      try {
+        const stringId = String(suggestion.id);
+        const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
+        if (!myIds.map(String).includes(stringId)) {
+          myIds.push(suggestion.id);
+          localStorage.setItem('samjin_my_post_ids', JSON.stringify(myIds));
         }
-      } else {
-        setPinError(data.error || '비밀번호가 일치하지 않습니다.');
+
+        const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
+        const idx = localPosts.findIndex((p: any) => String(p.id) === stringId);
+        if (idx !== -1) {
+          localPosts[idx] = obj;
+        } else {
+          localPosts.push(obj);
+        }
+        localStorage.setItem('samjin_local_suggestions', JSON.stringify(localPosts));
+
+        const persistentPosts = JSON.parse(localStorage.getItem('samjin_suggestions_persistent_v1') || '[]');
+        const pIdx = persistentPosts.findIndex((p: any) => String(p.id) === stringId);
+        if (pIdx !== -1) {
+          persistentPosts[pIdx] = { ...persistentPosts[pIdx], ...obj };
+          localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(persistentPosts));
+        }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (err) {
-      setPinError('비밀번호 확인 중 오류가 발생했습니다.');
-    } finally {
-      setIsVerifying(false);
+    };
+
+    // 1. Local PIN Check
+    let localItem: any = null;
+    try {
+      const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
+      const persistentPosts = JSON.parse(localStorage.getItem('samjin_suggestions_persistent_v1') || '[]');
+      localItem = localPosts.find((p: any) => String(p.id) === String(suggestion.id)) ||
+                  persistentPosts.find((p: any) => String(p.id) === String(suggestion.id));
+    } catch (e) {
+      console.error(e);
     }
+
+    const knownPin = suggestion.secretPin || localItem?.secretPin;
+    const knownContent = (localItem?.content && !localItem.content.startsWith('🔒 비밀글입니다'))
+      ? localItem.content
+      : (suggestion.content && !suggestion.content.startsWith('🔒 비밀글입니다'))
+        ? suggestion.content
+        : null;
+
+    if (knownPin && String(knownPin).trim() === typedPin) {
+      unlockedObj = {
+        ...suggestion,
+        ...(localItem || {}),
+        content: knownContent || suggestion.content,
+        isSecret: true,
+      };
+    }
+
+    // 2. Server verification if not unlocked via local known PIN
+    if (!unlockedObj) {
+      try {
+        const res = await fetch(`/api/suggestions/${suggestion.id}/verify-pin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: typedPin }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.verified) {
+          let cleanContent = data.suggestion?.content;
+          if (!cleanContent || cleanContent.startsWith('🔒 비밀글입니다')) {
+            cleanContent = knownContent || suggestion.content;
+          }
+
+          unlockedObj = {
+            ...suggestion,
+            ...(data.suggestion || {}),
+            content: cleanContent,
+            isSecret: true,
+          };
+        } else if (!res.ok && knownContent && (!knownPin || String(knownPin).trim() === typedPin)) {
+          unlockedObj = {
+            ...suggestion,
+            content: knownContent,
+            isSecret: true,
+          };
+        } else {
+          setPinError(data.error || '비밀번호가 일치하지 않습니다.');
+        }
+      } catch (err) {
+        if (knownContent && (!knownPin || String(knownPin).trim() === typedPin)) {
+          unlockedObj = {
+            ...suggestion,
+            content: knownContent,
+            isSecret: true,
+          };
+        } else {
+          setPinError('비밀번호 확인 중 오류가 발생했습니다.');
+        }
+      }
+    }
+
+    // 3. Final Unlock Action
+    if (unlockedObj) {
+      setIsUnlocked(true);
+      setPinError('');
+      setUnlockedSuggestion(unlockedObj);
+      markAndCacheUnlocked(unlockedObj);
+    }
+
+    setIsVerifying(false);
   };
 
   const handleCommentSubmit = (e: React.FormEvent) => {
