@@ -67,43 +67,9 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
       suggestion.isSecret ||
         suggestion.tags?.includes('#비밀글') ||
         suggestion.tags?.includes('비밀글') ||
+        (suggestion.secretPin && String(suggestion.secretPin).length > 0) ||
         (suggestion.content && suggestion.content.startsWith('🔒 비밀글입니다'))
     );
-
-    const isAlreadyUnmasked = suggestion.content && !suggestion.content.startsWith('🔒 비밀글입니다');
-
-    // Check if post ID is marked in my_post_ids or cached unmasked in local storage
-    let localContent: string | null = null;
-    let localFoundObj: any = null;
-    try {
-      const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]').map(String);
-      const isMyPost = myIds.includes(String(suggestion.id));
-
-      const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
-      const persistentPosts = JSON.parse(localStorage.getItem('samjin_suggestions_persistent_v1') || '[]');
-      localFoundObj = localPosts.find((p: any) => String(p.id) === String(suggestion.id)) ||
-                      persistentPosts.find((p: any) => String(p.id) === String(suggestion.id));
-
-      if (localFoundObj?.content && !localFoundObj.content.startsWith('🔒 비밀글입니다')) {
-        localContent = localFoundObj.content;
-      }
-
-      if (!isSecretPost || isAlreadyUnmasked || isMyPost || localContent) {
-        setIsUnlocked(true);
-        const resolvedContent = isAlreadyUnmasked
-          ? suggestion.content
-          : (localContent || suggestion.content);
-        setUnlockedSuggestion({
-          ...suggestion,
-          ...(localFoundObj || {}),
-          content: resolvedContent,
-          isSecret: isSecretPost,
-        });
-        return;
-      }
-    } catch (e) {
-      console.error(e);
-    }
 
     if (isAdmin) {
       setIsUnlocked(true);
@@ -115,9 +81,14 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
           }
         })
         .catch(console.error);
-    } else {
+    } else if (isSecretPost) {
+      // 비밀글일 경우 일반 사용자는 무조건 PIN 입력 창을 띄움
       setIsUnlocked(false);
       setUnlockedSuggestion(null);
+    } else {
+      // 일반 공개글인 경우 바로 열람
+      setIsUnlocked(true);
+      setUnlockedSuggestion(suggestion);
     }
   }, [suggestion?.id, isOpen, isAdmin, adminPin]);
 

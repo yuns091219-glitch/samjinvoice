@@ -175,8 +175,28 @@ async function startServer() {
       res.json(safeList);
     } catch (err: any) {
       console.error('Error fetching suggestions from Supabase:', err);
-      // Fallback to in-memory store if DB error occurs
-      res.json(suggestionsStore);
+      // Fallback to in-memory store if DB error occurs with proper secret masking
+      const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
+      const safeMemory = suggestionsStore.map((item) => {
+        const stringId = String(item.id);
+        const effectivePin = item.secretPin || secretPinStore.get(stringId);
+        const isItemSecret = Boolean(
+          item.isSecret ||
+            (Array.isArray(item.tags) && (item.tags.includes('#비밀글') || item.tags.includes('비밀글'))) ||
+            effectivePin ||
+            secretPinStore.has(stringId)
+        );
+        if (isItemSecret && !isAdminUser) {
+          return {
+            ...item,
+            content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
+            secretPin: undefined,
+          };
+        }
+        const { secretPin, ...rest } = item;
+        return rest;
+      });
+      res.json(safeMemory);
     }
   });
 
