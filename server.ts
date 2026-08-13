@@ -115,15 +115,31 @@ async function startServer() {
       const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
 
       const safeList = filtered.map((item) => {
+        // Merge comments with memory store if memory store has comments
+        const memItem = suggestionsStore.find((s) => s.id === item.id);
+        let comments = Array.isArray(item.comments) ? item.comments : [];
+        if (memItem && Array.isArray(memItem.comments) && memItem.comments.length > 0) {
+          const map = new Map<string, any>();
+          comments.forEach((c) => c && c.id && map.set(c.id, c));
+          memItem.comments.forEach((c) => c && c.id && map.set(c.id, c));
+          comments = Array.from(map.values()).sort(
+            (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+        }
+
         if (item.isSecret && !isAdminUser) {
           return {
             ...item,
+            comments,
             content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
             secretPin: undefined,
           };
         }
         const { secretPin, ...rest } = item;
-        return rest;
+        return {
+          ...rest,
+          comments,
+        };
       });
 
       res.json(safeList);
@@ -264,28 +280,53 @@ async function startServer() {
       createdAt: new Date().toISOString(),
     };
 
+    // Always update in-memory store
+    let memIdx = suggestionsStore.findIndex((s) => s.id === id);
+    if (memIdx === -1) {
+      // Create memory record if missing
+      const dummy: Suggestion = {
+        id,
+        category: 'OTHER',
+        title: '',
+        content: '',
+        authorNickname: '익명',
+        isSecret: false,
+        status: 'RECEIVED',
+        upvotes: 0,
+        tags: [],
+        comments: [newComment],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      suggestionsStore.push(dummy);
+      memIdx = suggestionsStore.length - 1;
+    } else {
+      if (!Array.isArray(suggestionsStore[memIdx].comments)) {
+        suggestionsStore[memIdx].comments = [];
+      }
+      if (!suggestionsStore[memIdx].comments.some((c) => c.id === newComment.id)) {
+        suggestionsStore[memIdx].comments.push(newComment);
+      }
+      suggestionsStore[memIdx].updatedAt = new Date().toISOString();
+    }
+
     try {
       const updated = await addCommentToSupabase(id, newComment);
-      const idx = suggestionsStore.findIndex((s) => s.id === id);
-      if (idx !== -1) {
-        suggestionsStore[idx] = updated;
-      }
+      // Ensure memory store comments are merged into updated
+      const map = new Map<string, Comment>();
+      (suggestionsStore[memIdx].comments || []).forEach((c) => map.set(c.id, c));
+      (updated.comments || []).forEach((c) => map.set(c.id, c));
+      updated.comments = Array.from(map.values()).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+
+      suggestionsStore[memIdx] = updated;
+
       const { secretPin, ...safeUpdated } = updated;
       res.json(safeUpdated);
     } catch (err) {
-      const index = suggestionsStore.findIndex((s) => s.id === id);
-      if (index !== -1) {
-        if (!Array.isArray(suggestionsStore[index].comments)) {
-          suggestionsStore[index].comments = [];
-        }
-        suggestionsStore[index].comments.push(newComment);
-        suggestionsStore[index].updatedAt = new Date().toISOString();
-
-        const { secretPin, ...safeUpdated } = suggestionsStore[index];
-        res.json(safeUpdated);
-      } else {
-        res.status(404).json({ error: '건의글을 찾을 수 없습니다.' });
-      }
+      const { secretPin, ...safeUpdated } = suggestionsStore[memIdx];
+      res.json(safeUpdated);
     }
   });
 

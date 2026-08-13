@@ -157,6 +157,20 @@ export default function App() {
           if (!cachedItem) return remoteItem;
 
           const remoteComments = Array.isArray(remoteItem.comments) ? remoteItem.comments : [];
+          const cachedComments = Array.isArray(cachedItem.comments) ? cachedItem.comments : [];
+
+          // Merge comments uniquely by ID so locally added comments are never lost
+          const commentMap = new Map<string, any>();
+          cachedComments.forEach((c) => {
+            if (c && c.id) commentMap.set(c.id, c);
+          });
+          remoteComments.forEach((c) => {
+            if (c && c.id) commentMap.set(c.id, c);
+          });
+          const mergedComments = Array.from(commentMap.values()).sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+
           // For non-admin user on author's browser: preserve author's own unmasked content
           const isOwnerLocalPost = !isAdmin && cachedItem.isSecret && cachedItem.content && !cachedItem.content.startsWith('🔒 비밀글입니다');
 
@@ -166,7 +180,7 @@ export default function App() {
               ? cachedItem.content
               : remoteItem.content,
             secretPin: cachedItem.secretPin || remoteItem.secretPin,
-            comments: remoteComments,
+            comments: mergedComments,
           };
         });
 
@@ -180,6 +194,25 @@ export default function App() {
         fullList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
         setSuggestions(fullList);
+        setSelectedSuggestion((prev) => {
+          if (!prev) return null;
+          const updated = fullList.find((s) => s.id === prev.id);
+          if (!updated) return prev;
+          const prevComments = prev.comments || [];
+          const nextComments = updated.comments || [];
+          const map = new Map<string, any>();
+          prevComments.forEach((c) => c && c.id && map.set(c.id, c));
+          nextComments.forEach((c) => c && c.id && map.set(c.id, c));
+          const mergedComments = Array.from(map.values()).sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+
+          return {
+            ...updated,
+            content: (prev.content && !prev.content.startsWith('🔒 비밀글입니다')) ? prev.content : updated.content,
+            comments: mergedComments,
+          };
+        });
         try {
           localStorage.setItem('samjin_suggestions_persistent_v1', JSON.stringify(fullList));
         } catch (e) {

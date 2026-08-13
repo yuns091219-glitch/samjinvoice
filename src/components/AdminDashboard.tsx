@@ -40,8 +40,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Applied improvements list
-  const appliedSuggestions = suggestions.filter((s) => s.status === 'APPLIED');
+  // Applied improvements list - removed as requested
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4">
@@ -165,49 +164,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               </div>
 
-              {/* Reflected Improvements Wall */}
-              <div className="bg-white rounded-2xl p-5 border border-purple-200 shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
-                      <Award className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-slate-900 text-base">
-                        🎉 삼진고를 변화시킨 학생 건의 반영 성과 (개선 명예의 전당)
-                      </h3>
-                      <p className="text-xs text-slate-500">학생들의 제안이 실제로 학교 시설 및 규칙에 반영된 내역입니다.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3 pt-2">
-                  {appliedSuggestions.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-4">아직 반영 완료된 건의가 없습니다.</p>
-                  ) : (
-                    appliedSuggestions.map((s) => (
-                      <div
-                        key={s.id}
-                        onClick={() => onSelectSuggestion(s)}
-                        className="bg-purple-50/70 hover:bg-purple-50 border border-purple-200 rounded-2xl p-4 transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-bold text-purple-700 bg-purple-200 px-2 py-0.5 rounded-md">
-                              개선 완료
-                            </span>
-                            <h4 className="font-bold text-slate-900 text-sm">{s.title}</h4>
-                            <p className="text-xs text-slate-600 line-clamp-1">{s.officialResponse?.content}</p>
-                          </div>
-                          <span className="text-xs font-bold text-purple-800 bg-white px-2.5 py-1 rounded-xl border border-purple-200 whitespace-nowrap">
-                            👍 공감 {s.upvotes}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
 
               {/* All Suggestions Table for Quick Status Toggle */}
               <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">

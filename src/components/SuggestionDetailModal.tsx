@@ -92,9 +92,18 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     if (unlockedSuggestion && unlockedSuggestion.id === suggestion.id) {
       setUnlockedSuggestion((prev) => {
         if (!prev) return suggestion;
+        const prevComments = prev.comments || [];
+        const nextComments = suggestion.comments || [];
+        const commentMap = new Map();
+        prevComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
+        nextComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
+        const mergedComments = Array.from(commentMap.values()).sort(
+          (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+
         return {
           ...prev,
-          comments: suggestion.comments,
+          comments: mergedComments,
           upvotes: suggestion.upvotes,
           status: suggestion.status,
           officialResponse: suggestion.officialResponse,
