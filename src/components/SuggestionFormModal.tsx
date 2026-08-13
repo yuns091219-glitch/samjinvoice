@@ -250,7 +250,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
             {isSecret ? (
               <div className="pt-2 border-t border-[#E6E2D3] space-y-2">
                 <p className="text-[11px] text-rose-700 font-semibold">
-                  🔒 비밀글 설정 시 본인만 알 수 있는 4자리 PIN 비밀번호를 설정합니다.
+                  🔒 비밀글 설정 시 작성 본인 및 관리자만 열람이 가능하며, 4자리 PIN 비밀번호를 함께 설정합니다.
                 </p>
                 <label className="block text-xs text-[#8C8479] font-semibold mb-1">
                   열람 및 수정/삭제용 4자리 비밀번호 (PIN)

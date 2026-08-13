@@ -96,6 +96,47 @@ export default function App() {
     }, 3000);
   };
 
+  const getMyPostIds = (): string[] => {
+    try {
+      return JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
+    } catch {
+      return [];
+    }
+  };
+
+  const markAsMyPost = (id: string) => {
+    const ids = getMyPostIds();
+    if (!ids.includes(id)) {
+      ids.push(id);
+      try {
+        localStorage.setItem('samjin_my_post_ids', JSON.stringify(ids));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const isMyPost = (post: Suggestion): boolean => {
+    const myIds = getMyPostIds();
+    if (myIds.includes(post.id)) return true;
+
+    try {
+      const cachedPostsStr = localStorage.getItem('samjin_suggestions_persistent_v1');
+      if (cachedPostsStr) {
+        const cachedPosts: Suggestion[] = JSON.parse(cachedPostsStr);
+        const cached = cachedPosts.find((c) => c.id === post.id);
+        if (cached) {
+          if (cached.secretPin) return true;
+          if (cached.content && !cached.content.startsWith('🔒 비밀글입니다')) return true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return false;
+  };
+
   // Fetch initial suggestions from Express API or direct Supabase client
   const fetchSuggestions = async () => {
     try {
@@ -280,6 +321,13 @@ export default function App() {
   const filteredSuggestions = useMemo(() => {
     return suggestions
       .filter((s) => {
+        // 비밀글 권한 설정: 관리자가 아니고 작성 본인도 아니면 목록에서 숨김
+        if (s.isSecret && !isAdmin) {
+          if (!isMyPost(s)) {
+            return false;
+          }
+        }
+
         if (selectedCategory !== 'ALL') {
           const catNorm = normalizeCategory(s.category);
           const selNorm = normalizeCategory(selectedCategory);
@@ -315,7 +363,7 @@ export default function App() {
         // default: latest (최신순)
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
-  }, [suggestions, selectedCategory, selectedStatus, searchQuery, sortBy]);
+  }, [suggestions, selectedCategory, selectedStatus, searchQuery, sortBy, isAdmin]);
 
   // Admin stats computation
   const stats: AdminStats = useMemo(() => {
@@ -703,6 +751,10 @@ export default function App() {
       };
     }
 
+    if (createdPost) {
+      markAsMyPost(createdPost.id);
+    }
+
     setSuggestions((prev) => [createdPost!, ...prev]);
     showToast('🎉 새로운 익명 건의사항이 정상 등록되었습니다!');
   };
@@ -720,6 +772,12 @@ export default function App() {
 
       if (res.ok) {
         deletedSuccess = true;
+      } else {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401 || res.status === 403) {
+          showToast(`❌ ${data.error || '권한이 없거나 비밀번호가 올바르지 않습니다.'}`);
+          return;
+        }
       }
     } catch (err) {
       console.warn('Delete API failed:', err);
@@ -731,7 +789,6 @@ export default function App() {
         deletedSuccess = true;
       } catch (sbErr) {
         console.warn('Supabase delete failed:', sbErr);
-        deletedSuccess = true;
       }
     }
 
@@ -800,6 +857,7 @@ export default function App() {
       }
 
       if (verified) {
+        markAsMyPost(found.id);
         setLookupResult(found);
         setSelectedSuggestion(found);
       } else {
@@ -890,7 +948,7 @@ export default function App() {
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-[#8C8479] mt-0.5">
-                  🌐 공개 건의글은 최상단에 자동 등록되며, 🔒 비밀글은 설정한 PIN 번호로 열람하실 수 있습니다.
+                  🌐 공개 건의글은 모든 학우에게 공개되며, 🔒 비밀글은 작성 본인과 관리자만 볼 수 있습니다.
                 </p>
               </div>
             </div>

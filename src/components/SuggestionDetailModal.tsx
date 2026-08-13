@@ -134,6 +134,15 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
         if (data.suggestion) {
           setUnlockedSuggestion(data.suggestion);
         }
+        try {
+          const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
+          if (!myIds.includes(suggestion.id)) {
+            myIds.push(suggestion.id);
+            localStorage.setItem('samjin_my_post_ids', JSON.stringify(myIds));
+          }
+        } catch (e) {
+          console.error(e);
+        }
       } else {
         setPinError(data.error || '비밀번호가 일치하지 않습니다.');
       }

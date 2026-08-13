@@ -356,11 +356,20 @@ async function startServer() {
   });
 
   // Verify PIN for secret post or deletion
-  app.post('/api/suggestions/:id/verify-pin', (req, res) => {
+  app.post('/api/suggestions/:id/verify-pin', async (req, res) => {
     const { id } = req.params;
     const { pin } = req.body;
 
-    const found = suggestionsStore.find((s) => s.id === id);
+    let found = suggestionsStore.find((s) => s.id === id);
+    if (!found) {
+      try {
+        const list = await fetchSuggestionsFromSupabase();
+        found = list.find((s) => s.id === id);
+      } catch (e) {
+        // ignore error
+      }
+    }
+
     if (!found) {
       res.status(404).json({ error: '건의글을 찾을 수 없습니다.' });
       return;
@@ -416,6 +425,23 @@ async function startServer() {
     const { pin, adminPin } = req.body;
 
     const isAdmin = adminPin === 'fldkzh';
+
+    let found = suggestionsStore.find((s) => s.id === id);
+    if (!found) {
+      try {
+        const list = await fetchSuggestionsFromSupabase();
+        found = list.find((s) => s.id === id);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    if (found && found.secretPin && !isAdmin) {
+      if (found.secretPin !== String(pin)) {
+        res.status(401).json({ error: '삭제용 비밀번호가 일치하지 않습니다.' });
+        return;
+      }
+    }
 
     try {
       await deleteSuggestionFromSupabase(id);
