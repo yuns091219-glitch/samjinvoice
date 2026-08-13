@@ -57,18 +57,33 @@ const mapStatusToDB = (status: Status): string => {
  * Convert Supabase DB row to Suggestion object
  */
 export const mapRowToSuggestion = (row: any): Suggestion => {
-  const isSecret = row.is_anonymous ?? row.is_secret ?? false;
+  const tagsArr = Array.isArray(row.tags) ? row.tags : [];
+  
+  let isSecret = Boolean(row.is_secret);
+  if (row.secret_pin && String(row.secret_pin).trim().length > 0) {
+    isSecret = true;
+  }
+  if (tagsArr.includes('#비밀글') || tagsArr.includes('비밀글')) {
+    isSecret = true;
+  }
+  if ((row.content && String(row.content).includes('[SECRET_POST]')) || (row.title && String(row.title).includes('[SECRET_POST]'))) {
+    isSecret = true;
+  }
+
+  const rawTitle = String(row.title || '제목 없음').replace(/\[SECRET_POST\]\s*/g, '');
+  const rawContent = String(row.content || '').replace(/\[SECRET_POST\]\s*/g, '');
+
   return {
     id: String(row.id),
     category: normalizeCategory(row.category || row.category_name || row.cat || row.type),
-    title: row.title || '제목 없음',
-    content: row.content || '',
+    title: rawTitle,
+    content: rawContent,
     authorNickname: row.author_name || row.author_nickname || row.author || '익명의 삼진인',
     isSecret,
     secretPin: row.secret_pin ? String(row.secret_pin) : undefined,
     upvotes: Number(row.likes ?? row.upvotes ?? 0),
     status: mapStatusFromDB(row.status),
-    tags: Array.isArray(row.tags) ? row.tags : ['#마산삼진고', '#건의사항'],
+    tags: tagsArr.length > 0 ? tagsArr : ['#마산삼진고', '#건의사항'],
     imageUrl: row.image_url || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.created_at || new Date().toISOString(),
@@ -115,17 +130,25 @@ export const insertSuggestionToSupabase = async (payload: {
   secretPin?: string;
 }): Promise<Suggestion> => {
   const authorName = payload.authorNickname.trim() || '익명의 삼진인';
-  const tagsList = Array.isArray(payload.tags) && payload.tags.length > 0 ? payload.tags : ['#마산삼진고', '#건의사항'];
+  let tagsList = Array.isArray(payload.tags) && payload.tags.length > 0 ? payload.tags : ['#마산삼진고', '#건의사항'];
+  
+  if (payload.isSecret && !tagsList.includes('#비밀글')) {
+    tagsList = [...tagsList, '#비밀글'];
+  }
+
   const pin = payload.secretPin?.trim() || null;
+  const cleanContent = payload.content.trim();
 
   // Try multiple variant payloads to match whichever column names exist in the remote Supabase table
   const insertVariants = [
     {
       title: payload.title.trim(),
-      content: payload.content.trim(),
+      content: cleanContent,
       category: payload.category,
+      is_secret: payload.isSecret,
       is_anonymous: payload.isSecret,
       author_name: authorName,
+      author_nickname: authorName,
       likes: 0,
       status: '접수중',
       secret_pin: pin,
@@ -133,7 +156,7 @@ export const insertSuggestionToSupabase = async (payload: {
     },
     {
       title: payload.title.trim(),
-      content: payload.content.trim(),
+      content: cleanContent,
       category: payload.category,
       is_secret: payload.isSecret,
       author_nickname: authorName,
@@ -144,22 +167,25 @@ export const insertSuggestionToSupabase = async (payload: {
     },
     {
       title: payload.title.trim(),
-      content: payload.content.trim(),
+      content: cleanContent,
       category: payload.category,
-      is_anonymous: payload.isSecret,
+      is_secret: payload.isSecret,
       author_name: authorName,
       likes: 0,
       status: '접수중',
+      secret_pin: pin,
+      tags: tagsList,
     },
     {
       title: payload.title.trim(),
-      content: payload.content.trim(),
+      content: cleanContent,
       category: payload.category,
       status: '접수중',
+      tags: tagsList,
     },
     {
       title: payload.title.trim(),
-      content: payload.content.trim(),
+      content: cleanContent,
     },
   ];
 
@@ -173,7 +199,12 @@ export const insertSuggestionToSupabase = async (payload: {
         .single();
 
       if (!error && data) {
-        return mapRowToSuggestion(data);
+        const mapped = mapRowToSuggestion(data);
+        return {
+          ...mapped,
+          isSecret: payload.isSecret || mapped.isSecret,
+          secretPin: pin || mapped.secretPin,
+        };
       }
       lastError = error;
     } catch (e) {

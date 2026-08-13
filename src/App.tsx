@@ -118,23 +118,7 @@ export default function App() {
 
   const isMyPost = (post: Suggestion): boolean => {
     const myIds = getMyPostIds();
-    if (myIds.includes(post.id)) return true;
-
-    try {
-      const cachedPostsStr = localStorage.getItem('samjin_suggestions_persistent_v1');
-      if (cachedPostsStr) {
-        const cachedPosts: Suggestion[] = JSON.parse(cachedPostsStr);
-        const cached = cachedPosts.find((c) => c.id === post.id);
-        if (cached) {
-          if (cached.secretPin) return true;
-          if (cached.content && !cached.content.startsWith('🔒 비밀글입니다')) return true;
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    return false;
+    return myIds.includes(post.id);
   };
 
   // Fetch initial suggestions from Express API or direct Supabase client
@@ -213,10 +197,11 @@ export default function App() {
           );
 
           // For non-admin user on author's browser: preserve author's own unmasked content
-          const isOwnerLocalPost = !isAdmin && cachedItem.isSecret && cachedItem.content && !cachedItem.content.startsWith('🔒 비밀글입니다');
+          const isOwnerLocalPost = !isAdmin && isMyPost(cachedItem) && cachedItem.isSecret && cachedItem.content && !cachedItem.content.startsWith('🔒 비밀글입니다');
 
           return {
             ...remoteItem,
+            isSecret: Boolean(cachedItem.isSecret || remoteItem.isSecret),
             content: (isOwnerLocalPost && remoteItem.content?.startsWith('🔒 비밀글입니다'))
               ? cachedItem.content
               : remoteItem.content,
@@ -321,13 +306,6 @@ export default function App() {
   const filteredSuggestions = useMemo(() => {
     return suggestions
       .filter((s) => {
-        // 비밀글 권한 설정: 관리자가 아니고 작성 본인도 아니면 목록에서 숨김
-        if (s.isSecret && !isAdmin) {
-          if (!isMyPost(s)) {
-            return false;
-          }
-        }
-
         if (selectedCategory !== 'ALL') {
           const catNorm = normalizeCategory(s.category);
           const selNorm = normalizeCategory(selectedCategory);
@@ -349,6 +327,36 @@ export default function App() {
           }
         }
         return true;
+      })
+      .map((s) => {
+        const isSecretPost = Boolean(
+          s.isSecret ||
+            s.tags?.includes('#비밀글') ||
+            s.tags?.includes('비밀글') ||
+            (s.content && s.content.startsWith('🔒 비밀글입니다'))
+        );
+
+        // Strip legacy [SECRET_POST] text if present
+        const cleanTitle = (s.title || '').replace(/\[SECRET_POST\]\s*/g, '');
+        let cleanContent = (s.content || '').replace(/\[SECRET_POST\]\s*/g, '');
+
+        if (isSecretPost) {
+          if (!isAdmin && !isMyPost(s)) {
+            cleanContent = '🔒 비밀글입니다. 작성자 본인 및 관리자만 열람할 수 있습니다. (클릭하여 PIN 입력)';
+          }
+          return {
+            ...s,
+            title: cleanTitle,
+            content: cleanContent,
+            isSecret: true,
+          };
+        }
+
+        return {
+          ...s,
+          title: cleanTitle,
+          content: cleanContent,
+        };
       })
       .sort((a, b) => {
         if (sortBy === 'upvotes') {
@@ -752,6 +760,10 @@ export default function App() {
     }
 
     if (createdPost) {
+      createdPost.isSecret = formData.isSecret || createdPost.isSecret;
+      if (formData.secretPin) {
+        createdPost.secretPin = formData.secretPin;
+      }
       markAsMyPost(createdPost.id);
     }
 

@@ -127,15 +127,29 @@ async function startServer() {
           );
         }
 
-        if (item.isSecret && !isAdminUser) {
+        const isItemSecret = Boolean(
+          item.isSecret ||
+            memItem?.isSecret ||
+            (Array.isArray(item.tags) && (item.tags.includes('#비밀글') || item.tags.includes('비밀글'))) ||
+            item.secretPin ||
+            memItem?.secretPin
+        );
+
+        const mergedItem = {
+          ...item,
+          isSecret: isItemSecret,
+          secretPin: item.secretPin || memItem?.secretPin,
+        };
+
+        if (isItemSecret && !isAdminUser) {
           return {
-            ...item,
+            ...mergedItem,
             comments,
             content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
             secretPin: undefined,
           };
         }
-        const { secretPin, ...rest } = item;
+        const { secretPin, ...rest } = mergedItem;
         return {
           ...rest,
           comments,
@@ -221,6 +235,12 @@ async function startServer() {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
+      }
+
+      // Ensure isSecret and secretPin are explicitly preserved on newSuggestion
+      newSuggestion.isSecret = Boolean(isSecret) || newSuggestion.isSecret;
+      if (secretPin) {
+        newSuggestion.secretPin = String(secretPin).trim();
       }
 
       // Keep in-memory store updated

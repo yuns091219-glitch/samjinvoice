@@ -62,6 +62,13 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
     minute: '2-digit',
   });
 
+  const isSecret = Boolean(
+    suggestion.isSecret ||
+      suggestion.tags?.includes('#비밀글') ||
+      suggestion.tags?.includes('비밀글') ||
+      (suggestion.content && suggestion.content.startsWith('🔒 비밀글입니다'))
+  );
+
   return (
     <div
       onClick={() => onSelectCard(suggestion)}
@@ -85,9 +92,9 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
             </span>
 
             {/* Secret Badge */}
-            {suggestion.isSecret && (
-              <span className="inline-flex items-center space-x-1 text-xs bg-rose-50 text-rose-800 px-2 py-0.5 rounded-md border border-rose-200 font-semibold">
-                <Lock className="w-3 h-3" />
+            {isSecret && (
+              <span className="inline-flex items-center space-x-1 text-xs bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded-full border border-rose-300 font-bold shadow-2xs">
+                <Lock className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                 <span>비밀글</span>
               </span>
             )}

@@ -63,9 +63,16 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
 
     if (!suggestion) return;
 
+    const isSecretPost = Boolean(
+      suggestion.isSecret ||
+        suggestion.tags?.includes('#비밀글') ||
+        suggestion.tags?.includes('비밀글') ||
+        (suggestion.content && suggestion.content.startsWith('🔒 비밀글입니다'))
+    );
+
     const isAlreadyUnmasked = suggestion.content && !suggestion.content.startsWith('🔒 비밀글입니다');
 
-    if (!suggestion.isSecret || isAlreadyUnmasked) {
+    if (!isSecretPost || isAlreadyUnmasked) {
       setIsUnlocked(true);
       if (isAlreadyUnmasked) {
         setUnlockedSuggestion(suggestion);
