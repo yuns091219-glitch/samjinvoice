@@ -138,15 +138,31 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
       if (res.ok && data.verified) {
         setIsUnlocked(true);
         setPinError('');
-        if (data.suggestion) {
-          setUnlockedSuggestion(data.suggestion);
-        }
+
+        const unmaskedObj = data.suggestion || {
+          ...suggestion,
+          isSecret: true,
+        };
+
+        setUnlockedSuggestion(unmaskedObj);
+
         try {
+          // 1. Mark as my post ID so App.tsx does not re-mask it
           const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
           if (!myIds.includes(suggestion.id)) {
             myIds.push(suggestion.id);
             localStorage.setItem('samjin_my_post_ids', JSON.stringify(myIds));
           }
+
+          // 2. Cache unmasked suggestion in local storage
+          const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
+          const idx = localPosts.findIndex((p: any) => p.id === suggestion.id);
+          if (idx !== -1) {
+            localPosts[idx] = unmaskedObj;
+          } else {
+            localPosts.push(unmaskedObj);
+          }
+          localStorage.setItem('samjin_local_suggestions', JSON.stringify(localPosts));
         } catch (e) {
           console.error(e);
         }
