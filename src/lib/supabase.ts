@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Suggestion, Category, Status, normalizeCategory } from '../types';
+import { Suggestion, Category, Status, normalizeCategory, stripMetadataMarkers, extractMetadataFromContent } from '../types';
 
 // Retrieve credentials from environment
 const meta = typeof import.meta !== 'undefined' ? (import.meta as any) : {};
@@ -57,6 +57,8 @@ const mapStatusToDB = (status: Status): string => {
  * Convert Supabase DB row to Suggestion object
  */
 export const mapRowToSuggestion = (row: any): Suggestion => {
+  const extracted = extractMetadataFromContent(row.title, row.content);
+
   let tagsArr: string[] = [];
   if (Array.isArray(row.tags)) {
     tagsArr = row.tags.map((t: any) => String(t).trim()).filter(Boolean);
@@ -72,58 +74,31 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
       tagsArr = row.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
     }
   }
-  
-  let rawContent = String(row.content || '');
-  let rawTitle = String(row.title || '제목 없음');
-  
-  let extractedPin: string | undefined = undefined;
-  let extractedAuthor: string | undefined = undefined;
-  let extractedCategory: string | undefined = undefined;
-  
-  // Extract secret pin from content marker [SECRET_POST:1234] if present
-  const pinMatch = rawContent.match(/\[SECRET_POST:([^\]]*)\]/);
-  if (pinMatch) {
-    extractedPin = pinMatch[1] ? pinMatch[1].trim() : undefined;
+
+  // Use extracted tags from content markers if available or row.tags
+  let effectiveTags = extracted.tags && extracted.tags.length > 0 ? extracted.tags : tagsArr;
+  if (effectiveTags.length === 0) {
+    effectiveTags = ['#마산삼진고', '#건의사항'];
   }
 
-  // Extract category from content marker [CATEGORY:MEALS] if present
-  const catMatch = rawContent.match(/\[CATEGORY:([^\]]+)\]/);
-  if (catMatch) {
-    extractedCategory = catMatch[1] ? catMatch[1].trim() : undefined;
-  }
+  let isSecret = Boolean(
+    row.is_secret ||
+    extracted.isSecret ||
+    Boolean(extracted.pin) ||
+    Boolean(row.secret_pin && String(row.secret_pin).trim().length > 0)
+  );
 
-  // Extract author nickname from content marker [AUTHOR:지혜로운 사자] if present
-  const authorMatch = rawContent.match(/\[AUTHOR:([^\]]+)\]/);
-  if (authorMatch) {
-    extractedAuthor = authorMatch[1] ? authorMatch[1].trim() : undefined;
-  }
-
-  // Clean title & content from markers
-  rawTitle = rawTitle
-    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
-    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
-    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
-  rawContent = rawContent
-    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
-    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
-    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
-
-  let isSecret = Boolean(row.is_secret) || Boolean(extractedPin) || Boolean(row.secret_pin && String(row.secret_pin).trim().length > 0);
-  if (tagsArr.includes('#비밀글') || tagsArr.includes('비밀글')) {
-    isSecret = true;
-  }
-  if (String(row.content || '').includes('[SECRET_POST]') || String(row.title || '').includes('[SECRET_POST]')) {
+  if (effectiveTags.includes('#비밀글') || effectiveTags.includes('비밀글')) {
     isSecret = true;
   }
 
   const finalPin = (row.secret_pin && String(row.secret_pin).trim().length > 0)
     ? String(row.secret_pin).trim()
-    : extractedPin;
+    : extracted.pin;
 
   // Format tags with leading #
-  const formattedTags = tagsArr.map((t) => (t.startsWith('#') ? t : `#${t}`));
-  const defaultTags = isSecret ? ['#마산삼진고', '#건의사항', '#비밀글'] : ['#마산삼진고', '#건의사항'];
-  let finalTags = formattedTags.length > 0 ? formattedTags : defaultTags;
+  const formattedTags = effectiveTags.map((t) => (t.startsWith('#') ? t : `#${t}`));
+  let finalTags = formattedTags.length > 0 ? formattedTags : ['#마산삼진고', '#건의사항'];
   if (isSecret && !finalTags.includes('#비밀글')) {
     finalTags.push('#비밀글');
   }
@@ -141,19 +116,19 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
   }
 
   const resolvedAuthor =
-    extractedAuthor ||
-    row.author_name ||
-    row.author_nickname ||
-    row.author ||
-    row.nickname ||
-    row.writer ||
-    row.user_name ||
-    row.username ||
+    extracted.authorNickname ||
+    (row.author_name && row.author_name !== '익명의 삼진인' ? row.author_name : undefined) ||
+    (row.author_nickname && row.author_nickname !== '익명의 삼진인' ? row.author_nickname : undefined) ||
+    (row.author && row.author !== '익명의 삼진인' ? row.author : undefined) ||
+    (row.nickname && row.nickname !== '익명의 삼진인' ? row.nickname : undefined) ||
+    (row.writer && row.writer !== '익명의 삼진인' ? row.writer : undefined) ||
+    (row.user_name && row.user_name !== '익명의 삼진인' ? row.user_name : undefined) ||
+    (row.username && row.username !== '익명의 삼진인' ? row.username : undefined) ||
     row.name ||
     '익명의 삼진인';
 
   const resolvedCategory = normalizeCategory(
-    extractedCategory ||
+    extracted.category ||
     row.category ||
     row.category_name ||
     row.category_type ||
@@ -168,8 +143,8 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
   return {
     id: String(row.id),
     category: resolvedCategory,
-    title: rawTitle,
-    content: rawContent,
+    title: extracted.cleanTitle || '제목 없음',
+    content: extracted.cleanContent,
     authorNickname: resolvedAuthor,
     isSecret,
     secretPin: finalPin || undefined,
@@ -259,17 +234,21 @@ export const insertSuggestionToSupabase = async (payload: {
   }
 
   const pin = payload.secretPin?.trim() || null;
-  const rawClean = payload.content.trim();
+  const rawClean = stripMetadataMarkers(payload.content);
+  const rawTitleClean = stripMetadataMarkers(payload.title);
+
+  // Encode metadata in content string so nothing is lost even if DB columns are missing
   const categoryTag = `[CATEGORY:${payload.category}]`;
   const authorTag = `[AUTHOR:${authorName}]`;
-  const cleanContent = payload.isSecret
-    ? `[SECRET_POST:${pin || ''}]${categoryTag}${authorTag} ${rawClean}`
-    : `${categoryTag}${authorTag} ${rawClean}`;
+  const tagsTag = `[TAGS:${tagsList.join(',')}]`;
+  const secretTag = payload.isSecret ? `[SECRET_POST:${pin || ''}]` : '';
+
+  const cleanContent = `${secretTag}${categoryTag}${authorTag}${tagsTag} ${rawClean}`.trim();
 
   // Try multiple variant payloads to match whichever column names exist in the remote Supabase table
   const insertVariants = [
     {
-      title: payload.title.trim(),
+      title: rawTitleClean,
       content: cleanContent,
       category: payload.category,
       category_name: payload.category,
@@ -285,7 +264,7 @@ export const insertSuggestionToSupabase = async (payload: {
       tags: tagsList,
     },
     {
-      title: payload.title.trim(),
+      title: rawTitleClean,
       content: cleanContent,
       category: payload.category,
       is_secret: payload.isSecret,
@@ -296,7 +275,7 @@ export const insertSuggestionToSupabase = async (payload: {
       tags: tagsList,
     },
     {
-      title: payload.title.trim(),
+      title: rawTitleClean,
       content: cleanContent,
       category: payload.category,
       is_secret: payload.isSecret,
@@ -307,7 +286,7 @@ export const insertSuggestionToSupabase = async (payload: {
       tags: tagsList,
     },
     {
-      title: payload.title.trim(),
+      title: rawTitleClean,
       content: cleanContent,
       category: payload.category,
       author_name: authorName,
@@ -316,14 +295,14 @@ export const insertSuggestionToSupabase = async (payload: {
       tags: tagsList,
     },
     {
-      title: payload.title.trim(),
+      title: rawTitleClean,
       content: cleanContent,
       category: payload.category,
       status: '접수중',
       tags: tagsList,
     },
     {
-      title: payload.title.trim(),
+      title: rawTitleClean,
       content: cleanContent,
     },
   ];
@@ -344,6 +323,7 @@ export const insertSuggestionToSupabase = async (payload: {
           category: payload.category || mapped.category,
           authorNickname: authorName || mapped.authorNickname,
           isSecret: payload.isSecret || mapped.isSecret,
+          tags: tagsList.length > 0 ? tagsList : mapped.tags,
           secretPin: pin || mapped.secretPin,
         };
       }

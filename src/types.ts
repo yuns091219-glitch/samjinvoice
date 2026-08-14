@@ -18,6 +18,84 @@ export const normalizeCategory = (cat?: string): Category => {
   return 'OTHER';
 };
 
+/**
+ * Strip all internal metadata tags from text
+ */
+export const stripMetadataMarkers = (text?: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/gi, '')
+    .replace(/\[CATEGORY:[^\]]+\]\s*/gi, '')
+    .replace(/\[AUTHOR:[^\]]+\]\s*/gi, '')
+    .replace(/\[TAGS:[^\]]+\]\s*/gi, '')
+    .trim();
+};
+
+export interface ExtractedMetadata {
+  cleanTitle: string;
+  cleanContent: string;
+  pin?: string;
+  category?: Category;
+  authorNickname?: string;
+  tags?: string[];
+  isSecret?: boolean;
+}
+
+export const extractMetadataFromContent = (rawTitle?: string, rawContent?: string): ExtractedMetadata => {
+  const contentStr = String(rawContent || '');
+  const titleStr = String(rawTitle || '');
+
+  let pin: string | undefined;
+  let category: Category | undefined;
+  let authorNickname: string | undefined;
+  let tags: string[] | undefined;
+  let isSecret = false;
+
+  // 1. PIN
+  const pinMatch = contentStr.match(/\[SECRET_POST(?::([^\]]*))?\]/i) || titleStr.match(/\[SECRET_POST(?::([^\]]*))?\]/i);
+  if (pinMatch) {
+    isSecret = true;
+    if (pinMatch[1] && pinMatch[1].trim().length > 0) {
+      pin = pinMatch[1].trim();
+    }
+  }
+
+  // 2. Category
+  const catMatch = contentStr.match(/\[CATEGORY:([^\]]+)\]/i) || titleStr.match(/\[CATEGORY:([^\]]+)\]/i);
+  if (catMatch && catMatch[1]) {
+    category = normalizeCategory(catMatch[1].trim());
+  }
+
+  // 3. Author Nickname
+  const authorMatch = contentStr.match(/\[AUTHOR:([^\]]+)\]/i) || titleStr.match(/\[AUTHOR:([^\]]+)\]/i);
+  if (authorMatch && authorMatch[1]) {
+    authorNickname = authorMatch[1].trim();
+  }
+
+  // 4. Tags
+  const tagsMatch = contentStr.match(/\[TAGS:([^\]]+)\]/i) || titleStr.match(/\[TAGS:([^\]]+)\]/i);
+  if (tagsMatch && tagsMatch[1]) {
+    tags = tagsMatch[1]
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((t) => (t.startsWith('#') ? t : `#${t}`));
+  }
+
+  const cleanTitle = stripMetadataMarkers(titleStr) || '제목 없음';
+  const cleanContent = stripMetadataMarkers(contentStr);
+
+  return {
+    cleanTitle,
+    cleanContent,
+    pin,
+    category,
+    authorNickname,
+    tags,
+    isSecret,
+  };
+};
+
 export type Status = 
   | 'RECEIVED'   // 접수됨 (🟡)
   | 'IN_REVIEW'  // 검토 중 (🔵)

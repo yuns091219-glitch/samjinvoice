@@ -21,11 +21,12 @@ let suggestionsStore: Suggestion[] = [...INITIAL_SUGGESTIONS];
 let noticesStore = [...INITIAL_NOTICES];
 let lunchStore = { ...TODAY_LUNCH };
 
-// Global persistent maps for PINs, unmasked contents, author nicknames, and categories across sessions
+// Global persistent maps for PINs, unmasked contents, author nicknames, categories, and tags across sessions
 const secretPinStore = new Map<string, string>();
 const originalContentStore = new Map<string, string>();
 const authorNicknameStore = new Map<string, string>();
 const categoryStore = new Map<string, Category>();
+const tagsStore = new Map<string, string[]>();
 
 // Global persistent comments map
 const COMMENTS_FILE = path.join(process.cwd(), 'data_comments.json');
@@ -130,14 +131,15 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
   const effectivePin = item.secretPin || secretPinStore.get(stringId);
   const effectiveAuthor = authorNicknameStore.get(stringId) || item.authorNickname || '익명의 삼진인';
   const effectiveCategory = categoryStore.get(stringId) || (item.category && item.category !== 'OTHER' ? item.category : undefined) || 'OTHER';
+  const effectiveTags = tagsStore.get(stringId) || (Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['#마산삼진고', '#건의사항']);
   const isItemSecret = Boolean(
     item.isSecret ||
-      (Array.isArray(item.tags) && (item.tags.includes('#비밀글') || item.tags.includes('비밀글'))) ||
+      (Array.isArray(effectiveTags) && (effectiveTags.includes('#비밀글') || effectiveTags.includes('비밀글'))) ||
       effectivePin ||
       secretPinStore.has(stringId)
   );
 
-  let itemTags = Array.isArray(item.tags) ? [...item.tags] : ['#마산삼진고', '#건의사항'];
+  let itemTags = Array.isArray(effectiveTags) ? [...effectiveTags] : ['#마산삼진고', '#건의사항'];
   if (isItemSecret && !itemTags.includes('#비밀글')) {
     itemTags.push('#비밀글');
   }
@@ -243,6 +245,12 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
           categoryStore.set(stringId, item.category);
         } else if (memItem?.category && memItem.category !== 'OTHER') {
           categoryStore.set(stringId, memItem.category);
+        }
+
+        if (item.tags && Array.isArray(item.tags) && item.tags.length > 0) {
+          tagsStore.set(stringId, item.tags);
+        } else if (memItem?.tags && Array.isArray(memItem.tags) && memItem.tags.length > 0) {
+          tagsStore.set(stringId, memItem.tags);
         }
 
         if (item.content && !item.content.startsWith('🔒 비밀글입니다')) {
@@ -362,16 +370,19 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
         };
       }
 
-      // Ensure isSecret, category, authorNickname, and secretPin are explicitly preserved on newSuggestion
+      // Ensure isSecret, category, authorNickname, tags, and secretPin are explicitly preserved on newSuggestion
       const cleanAuthor = authorNickname?.trim() || newSuggestion.authorNickname || '익명의 삼진인';
       const cleanCategory = (category as Category) || newSuggestion.category || 'OTHER';
+      const cleanTags = Array.isArray(tags) && tags.length > 0 ? tags : (newSuggestion.tags && newSuggestion.tags.length > 0 ? newSuggestion.tags : ['#마산삼진고', '#건의사항']);
       newSuggestion.authorNickname = cleanAuthor;
       newSuggestion.category = cleanCategory;
+      newSuggestion.tags = cleanTags;
       newSuggestion.isSecret = Boolean(isSecret) || newSuggestion.isSecret;
       const stringId = String(newSuggestion.id);
       newSuggestion.id = stringId;
       authorNicknameStore.set(stringId, cleanAuthor);
       categoryStore.set(stringId, cleanCategory);
+      tagsStore.set(stringId, cleanTags);
       if (secretPin) {
         const cleanPin = String(secretPin).trim();
         newSuggestion.secretPin = cleanPin;
@@ -384,7 +395,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
       // Keep in-memory store updated
       suggestionsStore.unshift(newSuggestion);
 
-      const { secretPin: _pin, ...safeCreated } = newSuggestion;
+      const safeCreated = formatSafeSuggestion(newSuggestion, false, true);
       res.status(201).json(safeCreated);
     } catch (err: any) {
       console.error('Error creating suggestion:', err);

@@ -9,6 +9,8 @@ import {
   isSecretSuggestion,
   isPostUnlocked,
   markPostAsUnlocked,
+  stripMetadataMarkers,
+  extractMetadataFromContent,
 } from './types';
 import { Navbar } from './components/Navbar';
 import { SchoolInfoBanner } from './components/SchoolInfoBanner';
@@ -215,11 +217,15 @@ export default function App() {
           const resolvedCategory = (remoteItem.category && remoteItem.category !== 'OTHER')
             ? normalizeCategory(remoteItem.category)
             : (cachedItem?.category ? normalizeCategory(cachedItem.category) : normalizeCategory(remoteItem.category));
+          const resolvedTags = (Array.isArray(remoteItem.tags) && remoteItem.tags.length > 0 && !(remoteItem.tags.length <= 2 && remoteItem.tags.includes('#마산삼진고') && remoteItem.tags.includes('#건의사항') && Array.isArray(cachedItem?.tags) && cachedItem.tags.length > 0))
+            ? remoteItem.tags
+            : (Array.isArray(cachedItem?.tags) && cachedItem.tags.length > 0 ? cachedItem.tags : (remoteItem.tags || ['#마산삼진고', '#건의사항']));
 
           return {
             ...remoteItem,
             category: resolvedCategory,
             authorNickname: resolvedAuthor,
+            tags: resolvedTags,
             isSecret: Boolean(cachedItem.isSecret || remoteItem.isSecret),
             content: (isOwnerLocalPost && remoteItem.content?.startsWith('🔒 비밀글입니다'))
               ? cachedItem.content
@@ -348,20 +354,23 @@ export default function App() {
         return true;
       })
       .map((s) => {
-        const isSecretPost = isSecretSuggestion(s);
+        const meta = extractMetadataFromContent(s.title, s.content);
+        const isSecretPost = isSecretSuggestion(s) || meta.isSecret;
         const isUnlocked = isPostUnlocked(s.id, isAdmin);
 
-        // Strip [SECRET_POST], [AUTHOR:...], and [CATEGORY:...] prefix if present
-        const cleanTitle = (s.title || '')
-          .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
-          .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
-          .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
-        let cleanContent = (s.content || '')
-          .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
-          .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
-          .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
+        const cleanTitle = meta.cleanTitle || s.title || '제목 없음';
+        let cleanContent = meta.cleanContent;
 
-        let finalTags = s.tags ? [...s.tags] : ['#마산삼진고', '#건의사항'];
+        const effectiveCategory = s.category && s.category !== 'OTHER' ? s.category : (meta.category || s.category || 'OTHER');
+        const effectiveAuthor = s.authorNickname && s.authorNickname !== '익명의 삼진인'
+          ? s.authorNickname
+          : (meta.authorNickname || s.authorNickname || '익명의 삼진인');
+
+        const candidateTags = (Array.isArray(s.tags) && s.tags.length > 0)
+          ? s.tags
+          : (meta.tags && meta.tags.length > 0 ? meta.tags : ['#마산삼진고', '#건의사항']);
+
+        let finalTags = candidateTags.map((t: string) => (t.startsWith('#') ? t : `#${t}`));
         if (isSecretPost && !finalTags.includes('#비밀글')) {
           finalTags.push('#비밀글');
         }
@@ -372,6 +381,8 @@ export default function App() {
           }
           return {
             ...s,
+            category: effectiveCategory,
+            authorNickname: effectiveAuthor,
             title: cleanTitle,
             content: cleanContent,
             tags: finalTags,
@@ -381,6 +392,8 @@ export default function App() {
 
         return {
           ...s,
+          category: effectiveCategory,
+          authorNickname: effectiveAuthor,
           title: cleanTitle,
           content: cleanContent,
           tags: finalTags,
@@ -887,6 +900,7 @@ export default function App() {
       createdPost.category = formData.category || createdPost.category;
       createdPost.authorNickname = formData.authorNickname.trim() || createdPost.authorNickname || '익명의 삼진인';
       createdPost.isSecret = formData.isSecret || createdPost.isSecret;
+      createdPost.tags = formData.tags && formData.tags.length > 0 ? formData.tags : (createdPost.tags && createdPost.tags.length > 0 ? createdPost.tags : ['#마산삼진고', '#건의사항']);
       if (formData.secretPin) {
         createdPost.secretPin = formData.secretPin;
       }

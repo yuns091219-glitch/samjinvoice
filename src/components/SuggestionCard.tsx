@@ -1,5 +1,5 @@
 import React from 'react';
-import { Suggestion, Status, Category, normalizeCategory, isSecretSuggestion, isPostUnlocked } from '../types';
+import { Suggestion, Status, Category, normalizeCategory, isSecretSuggestion, isPostUnlocked, stripMetadataMarkers } from '../types';
 import { ThumbsUp, MessageSquare, Lock, CheckCircle2, Clock, FileSearch, AlertCircle, Award } from 'lucide-react';
 
 interface SuggestionCardProps {
@@ -67,19 +67,15 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
   const isSecret = isSecretSuggestion(suggestion);
   const isUnlocked = isPostUnlocked(suggestion.id, isAdmin);
 
-  let displayTags = suggestion.tags ? [...suggestion.tags] : ['#마산삼진고', '#건의사항'];
+  let displayTags = Array.isArray(suggestion.tags) && suggestion.tags.length > 0
+    ? [...suggestion.tags]
+    : ['#마산삼진고', '#건의사항'];
   if (isSecret && !displayTags.includes('#비밀글')) {
     displayTags.push('#비밀글');
   }
 
-  const cleanTitle = (suggestion.title || '제목 없음')
-    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
-    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
-    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
-  const rawContent = (suggestion.content || '')
-    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
-    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
-    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
+  const cleanTitle = stripMetadataMarkers(suggestion.title) || '제목 없음';
+  const rawContent = stripMetadataMarkers(suggestion.content);
 
   const displayContent = (isSecret && !isUnlocked)
     ? '🔒 비밀글입니다. 작성자 본인 및 관리자만 열람할 수 있습니다. (클릭하여 PIN 4자리 입력)'
@@ -180,12 +176,11 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
           <button
             id={`btn-upvote-${suggestion.id}`}
             onClick={(e) => onUpvote(suggestion.id, e)}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-xl font-bold transition-all border active:scale-95 ${
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
               isUpvoted
-                ? 'bg-[#5F7161] hover:bg-[#4D5C4F] text-white border-[#5F7161] shadow-xs'
-                : 'bg-[#5F7161]/10 hover:bg-[#5F7161]/20 text-[#5F7161] border-[#5F7161]/30'
+                ? 'bg-[#5F7161] text-white shadow-2xs scale-105'
+                : 'bg-[#F4F1EA] text-[#4A443F] hover:bg-[#E6E2D3] border border-[#E6E2D3]'
             }`}
-            title={isUpvoted ? '공감 취소' : '이 건의에 공감합니다'}
           >
             <ThumbsUp className={`w-3.5 h-3.5 ${isUpvoted ? 'fill-current' : ''}`} />
             <span>{suggestion.upvotes}</span>

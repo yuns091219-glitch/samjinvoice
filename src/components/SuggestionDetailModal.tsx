@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Suggestion, Status, Comment, isSecretSuggestion, isPostUnlocked, markPostAsUnlocked } from '../types';
+import { Suggestion, Status, Comment, isSecretSuggestion, isPostUnlocked, markPostAsUnlocked, stripMetadataMarkers } from '../types';
 import { STATUS_CONFIG, CATEGORY_LABELS } from './SuggestionCard';
 import { getRandomAnonymousNickname } from '../data/initialData';
 import { verifySuggestionPin } from '../lib/supabase';
@@ -313,10 +313,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
               {/* Proposal Header Title & Meta */}
               <div>
                 <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug mb-3">
-                  {(activeSuggestion.title || '제목 없음')
-                    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
-                    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
-                    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '')}
+                  {stripMetadataMarkers(activeSuggestion.title) || '제목 없음'}
                 </h2>
 
                 <div className="flex items-center justify-between text-xs text-slate-500 pb-4 border-b border-slate-100">
@@ -346,10 +343,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
 
               {/* Suggestion Body Content */}
               <div className="text-slate-800 text-sm sm:text-base leading-relaxed whitespace-pre-wrap bg-slate-50/60 p-5 rounded-2xl border border-slate-200/70">
-                {(activeSuggestion.content || '')
-                  .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
-                  .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
-                  .replace(/\[AUTHOR:[^\]]+\]\s*/g, '')}
+                {stripMetadataMarkers(activeSuggestion.content)}
               </div>
 
               {/* Tags */}
