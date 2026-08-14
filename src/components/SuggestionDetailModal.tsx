@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Suggestion, Status, Comment } from '../types';
+import { Suggestion, Status, Comment, isSecretSuggestion, isPostUnlocked, markPostAsUnlocked } from '../types';
 import { STATUS_CONFIG, CATEGORY_LABELS } from './SuggestionCard';
 import { getRandomAnonymousNickname } from '../data/initialData';
+import { verifySuggestionPin } from '../lib/supabase';
 import { X, ThumbsUp, MessageSquare, Lock, Send, ShieldCheck, CheckCircle2, AlertCircle, Trash2, KeyRound, Bot } from 'lucide-react';
 
 interface SuggestionDetailModalProps {
@@ -61,16 +62,12 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
 
     if (!suggestion) return;
 
-    const isSecretPost = Boolean(
-      suggestion.isSecret ||
-        suggestion.tags?.includes('#비밀글') ||
-        suggestion.tags?.includes('비밀글') ||
-        (suggestion.secretPin && String(suggestion.secretPin).length > 0) ||
-        (suggestion.content && suggestion.content.startsWith('🔒 비밀글입니다'))
-    );
+    const isSecretPost = isSecretSuggestion(suggestion);
+    const unlocked = isPostUnlocked(suggestion.id, isAdmin);
 
     if (isAdmin) {
       setIsUnlocked(true);
+      setUnlockedSuggestion(suggestion);
       fetch(`/api/suggestions/${suggestion.id}?isAdmin=true&adminPin=${adminPin}`)
         .then((res) => res.json())
         .then((data) => {
@@ -78,10 +75,9 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
             setUnlockedSuggestion(data);
           }
         })
-        .catch(console.error);
+        .catch(() => {});
     } else if (isSecretPost) {
-      // Check if suggestion content is already unmasked
-      if (suggestion.content && !suggestion.content.startsWith('🔒 비밀글입니다')) {
+      if (unlocked) {
         setIsUnlocked(true);
         setUnlockedSuggestion(suggestion);
       } else {
@@ -130,47 +126,44 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     setPinError('');
     setIsVerifying(true);
 
-    try {
-      const res = await fetch(`/api/suggestions/${suggestion.id}/verify-pin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: typedPin }),
-      });
-      const data = await res.json();
+    let verified = false;
+    let unmaskedData: Suggestion | null = null;
 
-      if (res.ok && data.verified && data.suggestion) {
-        setIsUnlocked(true);
-        setPinError('');
-        setUnlockedSuggestion(data.suggestion);
-
-        // Cache unlocked post in LocalStorage
-        try {
-          const stringId = String(suggestion.id);
-          const myIds = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
-          if (!myIds.map(String).includes(stringId)) {
-            myIds.push(stringId);
-            localStorage.setItem('samjin_my_post_ids', JSON.stringify(myIds));
-          }
-
-          const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
-          const idx = localPosts.findIndex((p: any) => String(p.id) === stringId);
-          if (idx !== -1) {
-            localPosts[idx] = data.suggestion;
-          } else {
-            localPosts.push(data.suggestion);
-          }
-          localStorage.setItem('samjin_local_suggestions', JSON.stringify(localPosts));
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
-        setPinError(data.error || '비밀번호가 일치하지 않습니다.');
-      }
-    } catch (err) {
-      setPinError('비밀번호 확인 중 오류가 발생했습니다.');
-    } finally {
-      setIsVerifying(false);
+    // 1. Direct local verify check (Works offline, Netlify static, and all browsers)
+    if (verifySuggestionPin(suggestion, typedPin, adminPin)) {
+      verified = true;
+      unmaskedData = suggestion;
     }
+
+    // 2. Try server API verify-pin if local check didn't immediately match
+    if (!verified) {
+      try {
+        const res = await fetch(`/api/suggestions/${suggestion.id}/verify-pin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: typedPin }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.verified && data.suggestion) {
+            verified = true;
+            unmaskedData = data.suggestion;
+          }
+        }
+      } catch (err) {
+        console.warn('Verify PIN API error:', err);
+      }
+    }
+
+    if (verified) {
+      markPostAsUnlocked(suggestion.id);
+      setIsUnlocked(true);
+      setPinError('');
+      setUnlockedSuggestion(unmaskedData || suggestion);
+    } else {
+      setPinError('비밀번호(PIN 4자리)가 일치하지 않습니다.');
+    }
+    setIsVerifying(false);
   };
 
   const handleCommentSubmit = (e: React.FormEvent) => {
@@ -254,7 +247,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
           
           {/* Secret Post Password Verification Box */}
-          {activeSuggestion.isSecret && !isUnlocked ? (
+          {(isSecretSuggestion(activeSuggestion) || isSecretSuggestion(suggestion)) && !isUnlocked ? (
             <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 text-center space-y-4">
               <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
                 <KeyRound className="w-6 h-6" />
@@ -262,7 +255,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
               <div>
                 <h3 className="font-bold text-slate-900 text-lg">비밀 건의글입니다</h3>
                 <p className="text-slate-600 text-xs mt-1">
-                  작성 시 설정한 4자리 비밀번호(PIN)를 입력하세요.
+                  작성 시 설정한 4자리 비밀번호(PIN)를 입력하세요. (관리자는 마스터 비밀번호로 즉시 열람 가능)
                 </p>
               </div>
 
@@ -270,7 +263,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
                 <input
                   id="input-secret-pin"
                   type="password"
-                  maxLength={4}
+                  maxLength={10}
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -279,7 +272,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
                     }
                   }}
                   placeholder="PIN 4자리"
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-rose-300 text-center font-bold text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-rose-400"
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-rose-300 text-center font-bold text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-rose-400 bg-white text-slate-900"
                 />
                 <button
                   id="btn-verify-pin"
@@ -291,14 +284,14 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
                 </button>
               </div>
 
-              {pinError && <p className="text-xs text-rose-600 font-medium">{pinError}</p>}
+              {pinError && <p className="text-xs text-rose-600 font-bold">{pinError}</p>}
             </div>
           ) : (
             <>
               {/* Proposal Header Title & Meta */}
               <div>
                 <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug mb-3">
-                  {activeSuggestion.title}
+                  {(activeSuggestion.title || '제목 없음').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')}
                 </h2>
 
                 <div className="flex items-center justify-between text-xs text-slate-500 pb-4 border-b border-slate-100">
@@ -328,7 +321,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
 
               {/* Suggestion Body Content */}
               <div className="text-slate-800 text-sm sm:text-base leading-relaxed whitespace-pre-wrap bg-slate-50/60 p-5 rounded-2xl border border-slate-200/70">
-                {activeSuggestion.content}
+                {(activeSuggestion.content || '').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')}
               </div>
 
               {/* Tags */}

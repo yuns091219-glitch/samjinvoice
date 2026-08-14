@@ -95,3 +95,58 @@ export interface GeminiResponseDraft {
   draftResponse: string;
   actionItems: string[];
 }
+
+/**
+ * Universal check whether a suggestion is a secret post
+ */
+export const isSecretSuggestion = (s?: Suggestion | null | any): boolean => {
+  if (!s) return false;
+  if (s.isSecret === true) return true;
+  if (s.secretPin && String(s.secretPin).trim().length > 0) return true;
+  if (Array.isArray(s.tags) && (s.tags.includes('#비밀글') || s.tags.includes('비밀글'))) return true;
+  const content = String(s.content || '');
+  if (content.startsWith('🔒 비밀글입니다') || content.includes('[SECRET_POST]')) return true;
+  const title = String(s.title || '');
+  if (title.includes('[SECRET_POST]')) return true;
+  return false;
+};
+
+/**
+ * Get all post IDs that this browser / user is authorized to view unmasked
+ */
+export const getUnlockedPostIds = (): string[] => {
+  try {
+    const myIds: string[] = JSON.parse(localStorage.getItem('samjin_my_post_ids') || '[]');
+    const unlockedIds: string[] = JSON.parse(localStorage.getItem('samjin_unlocked_post_ids') || '[]');
+    const all = new Set([...myIds.map(String), ...unlockedIds.map(String)]);
+    return Array.from(all);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Check if a post is currently unlocked for this user on this browser
+ */
+export const isPostUnlocked = (id: string, isAdmin: boolean = false): boolean => {
+  if (isAdmin) return true;
+  const stringId = String(id);
+  const unlocked = getUnlockedPostIds();
+  return unlocked.includes(stringId);
+};
+
+/**
+ * Mark a post as unlocked in this browser
+ */
+export const markPostAsUnlocked = (id: string): void => {
+  try {
+    const stringId = String(id);
+    const existing: string[] = JSON.parse(localStorage.getItem('samjin_unlocked_post_ids') || '[]');
+    if (!existing.map(String).includes(stringId)) {
+      existing.push(stringId);
+      localStorage.setItem('samjin_unlocked_post_ids', JSON.stringify(existing));
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};

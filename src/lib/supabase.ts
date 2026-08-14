@@ -123,17 +123,47 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
  * 1. 건의사항 목록 조회: created_at 기준 내림차순 정렬
  */
 export const fetchSuggestionsFromSupabase = async (): Promise<Suggestion[]> => {
-  const { data, error } = await supabase
-    .from('suggestions')
-    .select('*')
-    .order('created_at', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from('suggestions')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-  if (error) {
-    console.error('Supabase fetch error:', error);
-    throw new Error(error.message);
+    if (error) {
+      console.warn('Supabase fetch returned error:', error.message);
+      return [];
+    }
+
+    return (data || []).map(mapRowToSuggestion);
+  } catch (err: any) {
+    console.warn('Supabase fetch network exception:', err?.message || err);
+    return [];
+  }
+};
+
+/**
+ * Universal PIN verification function (Works offline/static & with backend)
+ */
+export const verifySuggestionPin = (
+  suggestion: Suggestion,
+  enteredPin: string,
+  adminPin: string = 'fldkzh'
+): boolean => {
+  const cleanPin = String(enteredPin || '').trim();
+  if (!cleanPin) return false;
+
+  // Master admin password bypass
+  if (cleanPin === 'fldkzh' || (adminPin && cleanPin === adminPin.trim())) {
+    return true;
   }
 
-  return (data || []).map(mapRowToSuggestion);
+  // Match against post's own 4-digit PIN
+  const targetPin = suggestion.secretPin ? String(suggestion.secretPin).trim() : '';
+  if (targetPin && targetPin === cleanPin) {
+    return true;
+  }
+
+  return false;
 };
 
 /**

@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Suggestion, Category, Status, Notice, AdminStats, normalizeCategory } from './types';
+import {
+  Suggestion,
+  Category,
+  Status,
+  Notice,
+  AdminStats,
+  normalizeCategory,
+  isSecretSuggestion,
+  isPostUnlocked,
+  markPostAsUnlocked,
+} from './types';
 import { Navbar } from './components/Navbar';
 import { SchoolInfoBanner } from './components/SchoolInfoBanner';
 import { CategoryFilterBar } from './components/CategoryFilterBar';
@@ -17,6 +27,7 @@ import {
   deleteSuggestionFromSupabase,
   addCommentToSupabase,
   deleteCommentFromSupabase,
+  verifySuggestionPin,
   supabase,
 } from './lib/supabase';
 import { INITIAL_SUGGESTIONS } from './data/initialData';
@@ -329,25 +340,27 @@ export default function App() {
         return true;
       })
       .map((s) => {
-        const isSecretPost = Boolean(
-          s.isSecret ||
-            s.tags?.includes('#비밀글') ||
-            s.tags?.includes('비밀글') ||
-            (s.content && s.content.startsWith('🔒 비밀글입니다'))
-        );
+        const isSecretPost = isSecretSuggestion(s);
+        const isUnlocked = isPostUnlocked(s.id, isAdmin);
 
-        // Strip legacy [SECRET_POST] text if present
-        const cleanTitle = (s.title || '').replace(/\[SECRET_POST\]\s*/g, '');
-        let cleanContent = (s.content || '').replace(/\[SECRET_POST\]\s*/g, '');
+        // Strip [SECRET_POST] prefix if present
+        const cleanTitle = (s.title || '').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+        let cleanContent = (s.content || '').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+
+        let finalTags = s.tags ? [...s.tags] : ['#마산삼진고', '#건의사항'];
+        if (isSecretPost && !finalTags.includes('#비밀글')) {
+          finalTags.push('#비밀글');
+        }
 
         if (isSecretPost) {
-          if (!isAdmin && !isMyPost(s)) {
+          if (!isUnlocked) {
             cleanContent = '🔒 비밀글입니다. 작성자 본인 및 관리자만 열람할 수 있습니다. (클릭하여 PIN 입력)';
           }
           return {
             ...s,
             title: cleanTitle,
             content: cleanContent,
+            tags: finalTags,
             isSecret: true,
           };
         }
@@ -356,6 +369,7 @@ export default function App() {
           ...s,
           title: cleanTitle,
           content: cleanContent,
+          tags: finalTags,
         };
       })
       .sort((a, b) => {
@@ -838,6 +852,9 @@ export default function App() {
         createdPost.secretPin = formData.secretPin;
       }
       markAsMyPost(createdPost.id);
+      if (createdPost.isSecret) {
+        markPostAsUnlocked(createdPost.id);
+      }
 
       try {
         const localPosts = JSON.parse(localStorage.getItem('samjin_local_suggestions') || '[]');
@@ -920,46 +937,38 @@ export default function App() {
       return;
     }
 
-    if (found.isSecret) {
+    const isSecret = isSecretSuggestion(found);
+    if (isSecret) {
       if (!lookupPin.trim()) {
         setLookupError('비밀글 조회를 위해 비밀번호(PIN 4자리)를 입력해주세요.');
         return;
       }
-      let verified = false;
+      let verified = verifySuggestionPin(found, lookupPin.trim(), adminPin);
       let unmaskedSuggestion: Suggestion | null = null;
 
-      try {
-        const res = await fetch(`/api/suggestions/${found.id}/verify-pin`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pin: lookupPin.trim() }),
-        });
-        if (res.ok) {
-          const contentType = res.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
+      if (!verified) {
+        try {
+          const res = await fetch(`/api/suggestions/${found.id}/verify-pin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin: lookupPin.trim() }),
+          });
+          if (res.ok) {
             const data = await res.json();
             if (data.verified) {
               verified = true;
               unmaskedSuggestion = data.suggestion;
             }
           }
-        }
-      } catch (err) {
-        console.warn('Verify PIN API error:', err);
-      }
-
-      if (!verified) {
-        if (
-          found.secretPin &&
-          (found.secretPin === lookupPin.trim() || lookupPin.trim() === 'fldkzh' || lookupPin.trim() === adminPin)
-        ) {
-          verified = true;
+        } catch (err) {
+          console.warn('Verify PIN API error:', err);
         }
       }
 
       if (verified) {
-        const targetObj = unmaskedSuggestion || found;
+        markPostAsUnlocked(found.id);
         markAsMyPost(found.id);
+        const targetObj = unmaskedSuggestion || found;
         setLookupResult(targetObj);
         setSelectedSuggestion(targetObj);
       } else {
@@ -1101,6 +1110,7 @@ export default function App() {
                   onSelectCard={(s) => setSelectedSuggestion(s)}
                   onUpvote={handleUpvote}
                   isUpvoted={upvotedIds.includes(suggestion.id)}
+                  isAdmin={isAdmin}
                 />
               ))}
             </div>

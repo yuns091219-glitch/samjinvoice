@@ -1,5 +1,5 @@
 import React from 'react';
-import { Suggestion, Status, Category, normalizeCategory } from '../types';
+import { Suggestion, Status, Category, normalizeCategory, isSecretSuggestion, isPostUnlocked } from '../types';
 import { ThumbsUp, MessageSquare, Lock, CheckCircle2, Clock, FileSearch, AlertCircle, Award } from 'lucide-react';
 
 interface SuggestionCardProps {
@@ -7,6 +7,7 @@ interface SuggestionCardProps {
   onSelectCard: (suggestion: Suggestion) => void;
   onUpvote: (id: string, e: React.MouseEvent) => void;
   isUpvoted?: boolean;
+  isAdmin?: boolean;
 }
 
 export const STATUS_CONFIG: Record<Status, { label: string; badgeClass: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -51,8 +52,9 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onSelectCard,
   onUpvote,
   isUpvoted = false,
+  isAdmin = false,
 }) => {
-  const statusInfo = STATUS_CONFIG[suggestion.status];
+  const statusInfo = STATUS_CONFIG[suggestion.status] || STATUS_CONFIG['RECEIVED'];
   const StatusIcon = statusInfo.icon;
 
   const formattedDate = new Date(suggestion.createdAt).toLocaleDateString('ko-KR', {
@@ -62,17 +64,20 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
     minute: '2-digit',
   });
 
-  const isSecret = Boolean(
-    suggestion.isSecret ||
-      suggestion.tags?.includes('#비밀글') ||
-      suggestion.tags?.includes('비밀글') ||
-      (suggestion.content && suggestion.content.startsWith('🔒 비밀글입니다'))
-  );
+  const isSecret = isSecretSuggestion(suggestion);
+  const isUnlocked = isPostUnlocked(suggestion.id, isAdmin);
 
   let displayTags = suggestion.tags ? [...suggestion.tags] : ['#마산삼진고', '#건의사항'];
   if (isSecret && !displayTags.includes('#비밀글')) {
     displayTags.push('#비밀글');
   }
+
+  const cleanTitle = (suggestion.title || '제목 없음').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+  const rawContent = (suggestion.content || '').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+
+  const displayContent = (isSecret && !isUnlocked)
+    ? '🔒 비밀글입니다. 작성자 본인 및 관리자만 열람할 수 있습니다. (클릭하여 PIN 4자리 입력)'
+    : rawContent;
 
   return (
     <div
@@ -110,12 +115,12 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
 
         {/* Title */}
         <h3 className="font-bold text-[#2D2926] text-base sm:text-lg group-hover:text-[#5F7161] transition-colors line-clamp-2 mb-2 leading-snug">
-          {suggestion.title}
+          {cleanTitle}
         </h3>
 
         {/* Content Excerpt */}
-        <p className="text-[#8C8479] text-xs sm:text-sm line-clamp-2 leading-relaxed mb-4">
-          {suggestion.content}
+        <p className={`text-xs sm:text-sm line-clamp-2 leading-relaxed mb-4 ${isSecret && !isUnlocked ? 'text-rose-700 font-medium italic' : 'text-[#8C8479]'}`}>
+          {displayContent}
         </p>
 
         {/* Tags */}
