@@ -72,8 +72,14 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
     displayTags.push('#비밀글');
   }
 
-  const cleanTitle = (suggestion.title || '제목 없음').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
-  const rawContent = (suggestion.content || '').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+  const cleanTitle = (suggestion.title || '제목 없음')
+    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
+    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
+    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
+  const rawContent = (suggestion.content || '')
+    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
+    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
+    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
 
   const displayContent = (isSecret && !isUnlocked)
     ? '🔒 비밀글입니다. 작성자 본인 및 관리자만 열람할 수 있습니다. (클릭하여 PIN 4자리 입력)'

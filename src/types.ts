@@ -10,11 +10,11 @@ export const normalizeCategory = (cat?: string): Category => {
   if (!cat) return 'OTHER';
   const c = String(cat).trim().toUpperCase();
   if (c === 'MEALS' || c === 'MEAL' || c.includes('급식') || c.includes('식당')) return 'MEALS';
-  if (c === 'FACILITY' || c === 'FACILITIES' || c.includes('시설') || c.includes('환경')) return 'FACILITY';
-  if (c === 'ACADEMICS' || c === 'ACADEMIC' || c.includes('학습') || c.includes('진로') || c.includes('공부')) return 'ACADEMICS';
-  if (c === 'STUDENT_COUNCIL' || c.includes('학생회') || c.includes('행사')) return 'STUDENT_COUNCIL';
-  if (c === 'LIFE_RULES' || c.includes('교칙') || c.includes('생활')) return 'LIFE_RULES';
-  if (c === 'OTHER' || c.includes('기타') || c.includes('자유')) return 'OTHER';
+  if (c === 'FACILITY' || c === 'FACILITIES' || c.includes('시설') || c.includes('환경') || c.includes('보수') || c.includes('에어컨')) return 'FACILITY';
+  if (c === 'ACADEMICS' || c === 'ACADEMIC' || c.includes('학습') || c.includes('진로') || c.includes('공부') || c.includes('학업') || c.includes('수업') || c.includes('자습')) return 'ACADEMICS';
+  if (c === 'STUDENT_COUNCIL' || c === 'COUNCIL' || c.includes('학생회') || c.includes('행사') || c.includes('축제')) return 'STUDENT_COUNCIL';
+  if (c === 'LIFE_RULES' || c === 'LIFE' || c === 'RULES' || c === 'RULE' || c.includes('교칙') || c.includes('생활') || c.includes('규정') || c.includes('복장') || c.includes('두발')) return 'LIFE_RULES';
+  if (c === 'OTHER' || c.includes('기타') || c.includes('자유') || c.includes('건의')) return 'OTHER';
   return 'OTHER';
 };
 

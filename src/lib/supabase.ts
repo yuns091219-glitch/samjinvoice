@@ -57,12 +57,28 @@ const mapStatusToDB = (status: Status): string => {
  * Convert Supabase DB row to Suggestion object
  */
 export const mapRowToSuggestion = (row: any): Suggestion => {
-  const tagsArr = Array.isArray(row.tags) ? row.tags : [];
+  let tagsArr: string[] = [];
+  if (Array.isArray(row.tags)) {
+    tagsArr = row.tags.map((t: any) => String(t).trim()).filter(Boolean);
+  } else if (typeof row.tags === 'string' && row.tags.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(row.tags);
+      if (Array.isArray(parsed)) {
+        tagsArr = parsed.map((t: any) => String(t).trim()).filter(Boolean);
+      } else {
+        tagsArr = row.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+      }
+    } catch {
+      tagsArr = row.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+    }
+  }
   
   let rawContent = String(row.content || '');
   let rawTitle = String(row.title || '제목 없음');
   
   let extractedPin: string | undefined = undefined;
+  let extractedAuthor: string | undefined = undefined;
+  let extractedCategory: string | undefined = undefined;
   
   // Extract secret pin from content marker [SECRET_POST:1234] if present
   const pinMatch = rawContent.match(/\[SECRET_POST:([^\]]*)\]/);
@@ -70,9 +86,27 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     extractedPin = pinMatch[1] ? pinMatch[1].trim() : undefined;
   }
 
+  // Extract category from content marker [CATEGORY:MEALS] if present
+  const catMatch = rawContent.match(/\[CATEGORY:([^\]]+)\]/);
+  if (catMatch) {
+    extractedCategory = catMatch[1] ? catMatch[1].trim() : undefined;
+  }
+
+  // Extract author nickname from content marker [AUTHOR:지혜로운 사자] if present
+  const authorMatch = rawContent.match(/\[AUTHOR:([^\]]+)\]/);
+  if (authorMatch) {
+    extractedAuthor = authorMatch[1] ? authorMatch[1].trim() : undefined;
+  }
+
   // Clean title & content from markers
-  rawTitle = rawTitle.replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
-  rawContent = rawContent.replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+  rawTitle = rawTitle
+    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
+    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
+    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
+  rawContent = rawContent
+    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
+    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
+    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
 
   let isSecret = Boolean(row.is_secret) || Boolean(extractedPin) || Boolean(row.secret_pin && String(row.secret_pin).trim().length > 0);
   if (tagsArr.includes('#비밀글') || tagsArr.includes('비밀글')) {
@@ -86,18 +120,57 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     ? String(row.secret_pin).trim()
     : extractedPin;
 
+  // Format tags with leading #
+  const formattedTags = tagsArr.map((t) => (t.startsWith('#') ? t : `#${t}`));
   const defaultTags = isSecret ? ['#마산삼진고', '#건의사항', '#비밀글'] : ['#마산삼진고', '#건의사항'];
-  let finalTags = tagsArr.length > 0 ? [...tagsArr] : defaultTags;
+  let finalTags = formattedTags.length > 0 ? formattedTags : defaultTags;
   if (isSecret && !finalTags.includes('#비밀글')) {
     finalTags.push('#비밀글');
   }
 
+  let parsedComments: any[] = [];
+  if (Array.isArray(row.comments)) {
+    parsedComments = row.comments;
+  } else if (typeof row.comments === 'string' && row.comments.trim().length > 0) {
+    try {
+      const p = JSON.parse(row.comments);
+      if (Array.isArray(p)) parsedComments = p;
+    } catch {
+      parsedComments = [];
+    }
+  }
+
+  const resolvedAuthor =
+    extractedAuthor ||
+    row.author_name ||
+    row.author_nickname ||
+    row.author ||
+    row.nickname ||
+    row.writer ||
+    row.user_name ||
+    row.username ||
+    row.name ||
+    '익명의 삼진인';
+
+  const resolvedCategory = normalizeCategory(
+    extractedCategory ||
+    row.category ||
+    row.category_name ||
+    row.category_type ||
+    row.category_id ||
+    row.topic ||
+    row.division ||
+    row.kind ||
+    row.cat ||
+    row.type
+  );
+
   return {
     id: String(row.id),
-    category: normalizeCategory(row.category || row.category_name || row.cat || row.type),
+    category: resolvedCategory,
     title: rawTitle,
     content: rawContent,
-    authorNickname: row.author_name || row.author_nickname || row.author || '익명의 삼진인',
+    authorNickname: resolvedAuthor,
     isSecret,
     secretPin: finalPin || undefined,
     upvotes: Number(row.likes ?? row.upvotes ?? 0),
@@ -106,7 +179,7 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     imageUrl: row.image_url || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.created_at || new Date().toISOString(),
-    comments: Array.isArray(row.comments) ? row.comments : [],
+    comments: parsedComments,
     officialResponse: row.admin_reply
       ? {
           authorName: '학생회장',
@@ -187,9 +260,11 @@ export const insertSuggestionToSupabase = async (payload: {
 
   const pin = payload.secretPin?.trim() || null;
   const rawClean = payload.content.trim();
+  const categoryTag = `[CATEGORY:${payload.category}]`;
+  const authorTag = `[AUTHOR:${authorName}]`;
   const cleanContent = payload.isSecret
-    ? `[SECRET_POST:${pin || ''}] ${rawClean}`
-    : rawClean;
+    ? `[SECRET_POST:${pin || ''}]${categoryTag}${authorTag} ${rawClean}`
+    : `${categoryTag}${authorTag} ${rawClean}`;
 
   // Try multiple variant payloads to match whichever column names exist in the remote Supabase table
   const insertVariants = [
@@ -197,10 +272,13 @@ export const insertSuggestionToSupabase = async (payload: {
       title: payload.title.trim(),
       content: cleanContent,
       category: payload.category,
+      category_name: payload.category,
       is_secret: payload.isSecret,
       is_anonymous: payload.isSecret,
       author_name: authorName,
       author_nickname: authorName,
+      nickname: authorName,
+      writer: authorName,
       likes: 0,
       status: '접수중',
       secret_pin: pin,
@@ -226,6 +304,15 @@ export const insertSuggestionToSupabase = async (payload: {
       likes: 0,
       status: '접수중',
       secret_pin: pin,
+      tags: tagsList,
+    },
+    {
+      title: payload.title.trim(),
+      content: cleanContent,
+      category: payload.category,
+      author_name: authorName,
+      author_nickname: authorName,
+      status: '접수중',
       tags: tagsList,
     },
     {
@@ -254,6 +341,8 @@ export const insertSuggestionToSupabase = async (payload: {
         const mapped = mapRowToSuggestion(data);
         return {
           ...mapped,
+          category: payload.category || mapped.category,
+          authorNickname: authorName || mapped.authorNickname,
           isSecret: payload.isSecret || mapped.isSecret,
           secretPin: pin || mapped.secretPin,
         };
@@ -269,7 +358,7 @@ export const insertSuggestionToSupabase = async (payload: {
 };
 
 /**
- * 3. 댓글 추가 기능: Supabase DB comments JSON 컬럼 업데이트
+ * 3. 댓글 추가 기능: Supabase DB comments 컬럼 (JSON/String/Table) 업데이트
  */
 export const addCommentToSupabase = async (
   suggestionId: string,
@@ -285,27 +374,80 @@ export const addCommentToSupabase = async (
   try {
     const { data: current } = await supabase
       .from('suggestions')
-      .select('comments')
+      .select('*')
       .eq('id', suggestionId)
       .single();
 
-    const existing = Array.isArray(current?.comments) ? current.comments : [];
-    const updatedComments = [...existing, newComment];
+    let existing: any[] = [];
+    if (current) {
+      if (Array.isArray(current.comments)) {
+        existing = current.comments;
+      } else if (typeof current.comments === 'string' && current.comments.trim().length > 0) {
+        try {
+          const p = JSON.parse(current.comments);
+          if (Array.isArray(p)) existing = p;
+        } catch {
+          existing = [];
+        }
+      }
+    }
 
-    const { data, error } = await supabase
+    // Deduplicate comment if already exists
+    const withoutDup = existing.filter((c: any) => c.id !== newComment.id);
+    const updatedComments = [...withoutDup, newComment];
+
+    // Variant 1: JSON array update
+    let res = await supabase
       .from('suggestions')
       .update({ comments: updatedComments })
       .eq('id', suggestionId)
       .select()
       .single();
 
-    if (error || !data) {
-      throw error || new Error('Comment update failed');
+    if (!res.error && res.data) {
+      const mapped = mapRowToSuggestion(res.data);
+      mapped.comments = updatedComments;
+      return mapped;
     }
 
-    return mapRowToSuggestion(data);
+    // Variant 2: JSON stringified update
+    res = await supabase
+      .from('suggestions')
+      .update({ comments: JSON.stringify(updatedComments) })
+      .eq('id', suggestionId)
+      .select()
+      .single();
+
+    if (!res.error && res.data) {
+      const mapped = mapRowToSuggestion(res.data);
+      mapped.comments = updatedComments;
+      return mapped;
+    }
+
+    // Variant 3: If separate comments table exists
+    try {
+      await supabase.from('comments').insert([
+        {
+          id: newComment.id,
+          suggestion_id: suggestionId,
+          author_nickname: newComment.authorNickname,
+          content: newComment.content,
+          is_official: Boolean(newComment.isOfficial),
+          official_role: newComment.officialRole,
+          created_at: newComment.createdAt,
+        },
+      ]);
+    } catch {}
+
+    if (current) {
+      const mapped = mapRowToSuggestion(current);
+      mapped.comments = updatedComments;
+      return mapped;
+    }
+
+    throw new Error('Comment update failed on all variants');
   } catch (err) {
-    console.warn('addCommentToSupabase error:', err);
+    console.warn('addCommentToSupabase warning:', err);
     throw err;
   }
 };
@@ -320,27 +462,67 @@ export const deleteCommentFromSupabase = async (
   try {
     const { data: current } = await supabase
       .from('suggestions')
-      .select('comments')
+      .select('*')
       .eq('id', suggestionId)
       .single();
 
-    const existing = Array.isArray(current?.comments) ? current.comments : [];
+    let existing: any[] = [];
+    if (current) {
+      if (Array.isArray(current.comments)) {
+        existing = current.comments;
+      } else if (typeof current.comments === 'string' && current.comments.trim().length > 0) {
+        try {
+          const p = JSON.parse(current.comments);
+          if (Array.isArray(p)) existing = p;
+        } catch {
+          existing = [];
+        }
+      }
+    }
+
     const updatedComments = existing.filter((c: any) => c.id !== commentId);
 
-    const { data, error } = await supabase
+    // Variant 1: JSON array update
+    let res = await supabase
       .from('suggestions')
       .update({ comments: updatedComments })
       .eq('id', suggestionId)
       .select()
       .single();
 
-    if (error || !data) {
-      throw error || new Error('Comment delete failed');
+    if (!res.error && res.data) {
+      const mapped = mapRowToSuggestion(res.data);
+      mapped.comments = updatedComments;
+      return mapped;
     }
 
-    return mapRowToSuggestion(data);
+    // Variant 2: JSON stringified update
+    res = await supabase
+      .from('suggestions')
+      .update({ comments: JSON.stringify(updatedComments) })
+      .eq('id', suggestionId)
+      .select()
+      .single();
+
+    if (!res.error && res.data) {
+      const mapped = mapRowToSuggestion(res.data);
+      mapped.comments = updatedComments;
+      return mapped;
+    }
+
+    try {
+      await supabase.from('comments').delete().eq('id', commentId);
+    } catch {}
+
+    if (current) {
+      const mapped = mapRowToSuggestion(current);
+      mapped.comments = updatedComments;
+      return mapped;
+    }
+
+    throw new Error('Comment delete failed');
   } catch (err) {
-    console.warn('deleteCommentFromSupabase error:', err);
+    console.warn('deleteCommentFromSupabase warning:', err);
     throw err;
   }
 };

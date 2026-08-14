@@ -169,7 +169,29 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   const handleCommentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentContent.trim()) return;
-    onAddComment(activeSuggestion.id, commentNickname, commentContent, isAdmin);
+    const contentToSubmit = commentContent.trim();
+    const nickToSubmit = commentNickname;
+    onAddComment(activeSuggestion.id, nickToSubmit, contentToSubmit, isAdmin);
+
+    // Optimistically update active suggestion in modal
+    const optimisticComment: Comment = {
+      id: `comment-modal-${Date.now()}`,
+      authorNickname: nickToSubmit,
+      content: contentToSubmit,
+      createdAt: new Date().toISOString(),
+      isOfficial: Boolean(isAdmin),
+      officialRole: isAdmin ? '학생회' : undefined,
+    };
+    if (unlockedSuggestion) {
+      setUnlockedSuggestion((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          comments: [...(prev.comments || []), optimisticComment],
+        };
+      });
+    }
+
     setCommentContent('');
     setCommentNickname(getRandomAnonymousNickname());
   };
@@ -291,7 +313,10 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
               {/* Proposal Header Title & Meta */}
               <div>
                 <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug mb-3">
-                  {(activeSuggestion.title || '제목 없음').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')}
+                  {(activeSuggestion.title || '제목 없음')
+                    .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
+                    .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
+                    .replace(/\[AUTHOR:[^\]]+\]\s*/g, '')}
                 </h2>
 
                 <div className="flex items-center justify-between text-xs text-slate-500 pb-4 border-b border-slate-100">
@@ -321,7 +346,10 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
 
               {/* Suggestion Body Content */}
               <div className="text-slate-800 text-sm sm:text-base leading-relaxed whitespace-pre-wrap bg-slate-50/60 p-5 rounded-2xl border border-slate-200/70">
-                {(activeSuggestion.content || '').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')}
+                {(activeSuggestion.content || '')
+                  .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
+                  .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
+                  .replace(/\[AUTHOR:[^\]]+\]\s*/g, '')}
               </div>
 
               {/* Tags */}

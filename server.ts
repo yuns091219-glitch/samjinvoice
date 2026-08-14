@@ -21,9 +21,70 @@ let suggestionsStore: Suggestion[] = [...INITIAL_SUGGESTIONS];
 let noticesStore = [...INITIAL_NOTICES];
 let lunchStore = { ...TODAY_LUNCH };
 
-// Global persistent maps for PINs and unmasked contents across sessions
+// Global persistent maps for PINs, unmasked contents, author nicknames, and categories across sessions
 const secretPinStore = new Map<string, string>();
 const originalContentStore = new Map<string, string>();
+const authorNicknameStore = new Map<string, string>();
+const categoryStore = new Map<string, Category>();
+
+// Global persistent comments map
+const COMMENTS_FILE = path.join(process.cwd(), 'data_comments.json');
+function loadPersistedComments(): Record<string, Comment[]> {
+  try {
+    if (fs.existsSync(COMMENTS_FILE)) {
+      const data = fs.readFileSync(COMMENTS_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (e) {
+    console.warn('Error reading comments file:', e);
+  }
+  return {};
+}
+
+function savePersistedComments(data: Record<string, Comment[]>) {
+  try {
+    fs.writeFileSync(COMMENTS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('Error writing comments file:', e);
+  }
+}
+
+const persistentCommentsStore: Record<string, Comment[]> = loadPersistedComments();
+
+function getCombinedComments(suggestionId: string, directComments: Comment[] = []): Comment[] {
+  const stringId = String(suggestionId);
+  const fileComments = persistentCommentsStore[stringId] || [];
+  const map = new Map<string, Comment>();
+  
+  fileComments.forEach((c) => c && c.id && map.set(c.id, c));
+  directComments.forEach((c) => c && c.id && map.set(c.id, c));
+  
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+}
+
+function saveCombinedComment(suggestionId: string, newComment: Comment): Comment[] {
+  const stringId = String(suggestionId);
+  const existing = persistentCommentsStore[stringId] || [];
+  const filtered = existing.filter((c) => c.id !== newComment.id);
+  const updated = [...filtered, newComment].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+  persistentCommentsStore[stringId] = updated;
+  savePersistedComments(persistentCommentsStore);
+  return updated;
+}
+
+function removeCombinedComment(suggestionId: string, commentId: string): Comment[] {
+  const stringId = String(suggestionId);
+  const existing = persistentCommentsStore[stringId] || [];
+  const updated = existing.filter((c) => c.id !== commentId);
+  persistentCommentsStore[stringId] = updated;
+  savePersistedComments(persistentCommentsStore);
+  return updated;
+}
 
 async function startServer() {
   const app = express();
@@ -67,6 +128,8 @@ async function startServer() {
 function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, keepUnmaskedIfVerified: boolean = false): Suggestion {
   const stringId = String(item.id);
   const effectivePin = item.secretPin || secretPinStore.get(stringId);
+  const effectiveAuthor = authorNicknameStore.get(stringId) || item.authorNickname || '익명의 삼진인';
+  const effectiveCategory = categoryStore.get(stringId) || (item.category && item.category !== 'OTHER' ? item.category : undefined) || 'OTHER';
   const isItemSecret = Boolean(
     item.isSecret ||
       (Array.isArray(item.tags) && (item.tags.includes('#비밀글') || item.tags.includes('비밀글'))) ||
@@ -85,6 +148,8 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
     return {
       ...safeItem,
       id: stringId,
+      category: effectiveCategory,
+      authorNickname: effectiveAuthor,
       isSecret: true,
       tags: itemTags,
       content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
@@ -94,6 +159,8 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
   return {
     ...safeItem,
     id: stringId,
+    category: effectiveCategory,
+    authorNickname: effectiveAuthor,
     isSecret: isItemSecret,
     tags: itemTags,
   };
@@ -154,22 +221,28 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
       const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
 
       const safeList = filtered.map((item) => {
-        // Merge comments with memory store if memory store has comments
         const memItem = suggestionsStore.find((s) => String(s.id) === String(item.id));
-        let comments = Array.isArray(item.comments) ? item.comments : [];
-        if (memItem && Array.isArray(memItem.comments) && memItem.comments.length > 0) {
-          const map = new Map<string, any>();
-          comments.forEach((c) => c && c.id && map.set(c.id, c));
-          memItem.comments.forEach((c) => c && c.id && map.set(c.id, c));
-          comments = Array.from(map.values()).sort(
-            (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
-        }
+        const comments = getCombinedComments(
+          String(item.id),
+          [...(Array.isArray(item.comments) ? item.comments : []), ...(memItem && Array.isArray(memItem.comments) ? memItem.comments : [])]
+        );
 
         const stringId = String(item.id);
         const effectivePin = item.secretPin || memItem?.secretPin || secretPinStore.get(stringId);
         if (effectivePin) {
           secretPinStore.set(stringId, String(effectivePin).trim());
+        }
+
+        if (item.authorNickname && item.authorNickname !== '익명의 삼진인') {
+          authorNicknameStore.set(stringId, item.authorNickname);
+        } else if (memItem?.authorNickname && memItem.authorNickname !== '익명의 삼진인') {
+          authorNicknameStore.set(stringId, memItem.authorNickname);
+        }
+
+        if (item.category && item.category !== 'OTHER') {
+          categoryStore.set(stringId, item.category);
+        } else if (memItem?.category && memItem.category !== 'OTHER') {
+          categoryStore.set(stringId, memItem.category);
         }
 
         if (item.content && !item.content.startsWith('🔒 비밀글입니다')) {
@@ -195,7 +268,10 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
       console.error('Error fetching suggestions from Supabase:', err);
       // Fallback to in-memory store if DB error occurs with proper secret masking
       const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
-      const safeMemory = suggestionsStore.map((item) => formatSafeSuggestion(item, isAdminUser));
+      const safeMemory = suggestionsStore.map((item) => {
+        const comments = getCombinedComments(String(item.id), item.comments || []);
+        return formatSafeSuggestion({ ...item, comments }, isAdminUser);
+      });
       res.json(safeMemory);
     }
   });
@@ -221,11 +297,13 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
       const isPinCorrect = storedPin ? (storedPin === cleanPin) : Boolean(cleanPin);
 
       const realContent = originalContentStore.get(stringId) || found.content;
+      const comments = getCombinedComments(stringId, found.comments || []);
 
       if (found.isSecret && !isAdminUser && !isPinCorrect) {
         res.json({
           ...found,
           content: '🔒 비밀글입니다. 작성 시 설정한 4자리 비밀번호(PIN)를 입력하면 확인하실 수 있습니다.',
+          comments,
           secretPin: undefined,
           isLocked: true,
         });
@@ -235,6 +313,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
       const { secretPin, ...safeFound } = found;
       res.json({
         ...safeFound,
+        comments,
         content: (realContent && !realContent.startsWith('🔒 비밀글입니다')) ? realContent : found.content,
         isLocked: false,
       });
@@ -283,10 +362,16 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
         };
       }
 
-      // Ensure isSecret and secretPin are explicitly preserved on newSuggestion
+      // Ensure isSecret, category, authorNickname, and secretPin are explicitly preserved on newSuggestion
+      const cleanAuthor = authorNickname?.trim() || newSuggestion.authorNickname || '익명의 삼진인';
+      const cleanCategory = (category as Category) || newSuggestion.category || 'OTHER';
+      newSuggestion.authorNickname = cleanAuthor;
+      newSuggestion.category = cleanCategory;
       newSuggestion.isSecret = Boolean(isSecret) || newSuggestion.isSecret;
       const stringId = String(newSuggestion.id);
       newSuggestion.id = stringId;
+      authorNicknameStore.set(stringId, cleanAuthor);
+      categoryStore.set(stringId, cleanCategory);
       if (secretPin) {
         const cleanPin = String(secretPin).trim();
         newSuggestion.secretPin = cleanPin;
@@ -307,7 +392,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
     }
   });
 
-  // Upvote / Toggle suggestion (Supabase UPDATE likes)
+  // Upvote / Toggle suggestion (Supabase UPDATE likes) - NEVER lose comments
   app.post('/api/suggestions/:id/upvote', async (req, res) => {
     const { id } = req.params;
     const stringId = String(id);
@@ -323,15 +408,32 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
 
       const updated = await incrementLikesInSupabase(stringId, currentLikes, delta);
 
+      // Preserve all persistent comments for this post
+      const preservedComments = getCombinedComments(stringId, updated.comments || []);
+      updated.comments = preservedComments;
+
       // Update in-memory backup
       const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
       if (idx !== -1) {
-        suggestionsStore[idx] = updated;
+        suggestionsStore[idx] = {
+          ...suggestionsStore[idx],
+          upvotes: updated.upvotes,
+          comments: preservedComments,
+        };
       }
 
       res.json(formatSafeSuggestion(updated, isAdminUser));
     } catch (err: any) {
-      console.error('Error updating upvote in Supabase:', err);
+      console.warn('Error updating upvote in Supabase, using local store:', err);
+      const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
+      if (idx !== -1) {
+        const delta = (action === 'downvote' || action === 'cancel') ? -1 : 1;
+        suggestionsStore[idx].upvotes = Math.max(0, suggestionsStore[idx].upvotes + delta);
+        const preservedComments = getCombinedComments(stringId, suggestionsStore[idx].comments || []);
+        suggestionsStore[idx].comments = preservedComments;
+        res.json(formatSafeSuggestion(suggestionsStore[idx], isAdminUser));
+        return;
+      }
       res.status(500).json({ error: '공감 업데이트 중 오류가 발생했습니다.' });
     }
   });
@@ -350,7 +452,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
     }
 
     const newComment: Comment = {
-      id: `c-${Date.now()}`,
+      id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       authorNickname: authorNickname ? authorNickname.trim() : '익명의 삼진인',
       isOfficial: Boolean(isOfficial),
       officialRole: officialRole || undefined,
@@ -358,10 +460,12 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
       createdAt: new Date().toISOString(),
     };
 
-    // Always update in-memory store
+    // Save to persistent file storage immediately
+    const updatedComments = saveCombinedComment(stringId, newComment);
+
+    // Update in-memory store
     let memIdx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
     if (memIdx === -1) {
-      // Create memory record if missing
       const dummy: Suggestion = {
         id: stringId,
         category: 'OTHER',
@@ -372,34 +476,21 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
         status: 'RECEIVED',
         upvotes: 0,
         tags: [],
-        comments: [newComment],
+        comments: updatedComments,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       suggestionsStore.push(dummy);
       memIdx = suggestionsStore.length - 1;
     } else {
-      if (!Array.isArray(suggestionsStore[memIdx].comments)) {
-        suggestionsStore[memIdx].comments = [];
-      }
-      if (!suggestionsStore[memIdx].comments.some((c) => c.id === newComment.id)) {
-        suggestionsStore[memIdx].comments.push(newComment);
-      }
+      suggestionsStore[memIdx].comments = updatedComments;
       suggestionsStore[memIdx].updatedAt = new Date().toISOString();
     }
 
     try {
       const updated = await addCommentToSupabase(stringId, newComment);
-      // Ensure memory store comments are merged into updated
-      const map = new Map<string, Comment>();
-      (suggestionsStore[memIdx].comments || []).forEach((c) => map.set(c.id, c));
-      (updated.comments || []).forEach((c) => map.set(c.id, c));
-      updated.comments = Array.from(map.values()).sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      );
-
+      updated.comments = updatedComments;
       suggestionsStore[memIdx] = updated;
-
       res.json(formatSafeSuggestion(updated, isAdminUser));
     } catch (err) {
       res.json(formatSafeSuggestion(suggestionsStore[memIdx], isAdminUser));
@@ -413,22 +504,25 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
     const { isAdmin, adminPin } = req.query;
     const isAdminUser = isAdmin === 'true' || adminPin === 'fldkzh';
 
+    const updatedComments = removeCombinedComment(stringId, commentId);
+
+    const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
+    if (idx !== -1) {
+      suggestionsStore[idx].comments = updatedComments;
+    }
+
     try {
       const updated = await deleteCommentFromSupabase(stringId, commentId);
-      const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
+      updated.comments = updatedComments;
       if (idx !== -1) {
         suggestionsStore[idx] = updated;
       }
       res.json(formatSafeSuggestion(updated, isAdminUser));
     } catch (err) {
-      const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
       if (idx !== -1) {
-        if (Array.isArray(suggestionsStore[idx].comments)) {
-          suggestionsStore[idx].comments = suggestionsStore[idx].comments.filter((c) => c.id !== commentId);
-        }
         res.json(formatSafeSuggestion(suggestionsStore[idx], isAdminUser));
       } else {
-        res.status(404).json({ error: '건의글을 찾을 수 없습니다.' });
+        res.json({ success: true, comments: updatedComments });
       }
     }
   });

@@ -209,9 +209,17 @@ export default function App() {
 
           // For non-admin user on author's browser: preserve author's own unmasked content
           const isOwnerLocalPost = !isAdmin && isMyPost(cachedItem) && cachedItem.isSecret && cachedItem.content && !cachedItem.content.startsWith('🔒 비밀글입니다');
+          const resolvedAuthor = (remoteItem.authorNickname && remoteItem.authorNickname !== '익명의 삼진인')
+            ? remoteItem.authorNickname
+            : (cachedItem?.authorNickname || remoteItem.authorNickname || '익명의 삼진인');
+          const resolvedCategory = (remoteItem.category && remoteItem.category !== 'OTHER')
+            ? normalizeCategory(remoteItem.category)
+            : (cachedItem?.category ? normalizeCategory(cachedItem.category) : normalizeCategory(remoteItem.category));
 
           return {
             ...remoteItem,
+            category: resolvedCategory,
+            authorNickname: resolvedAuthor,
             isSecret: Boolean(cachedItem.isSecret || remoteItem.isSecret),
             content: (isOwnerLocalPost && remoteItem.content?.startsWith('🔒 비밀글입니다'))
               ? cachedItem.content
@@ -343,9 +351,15 @@ export default function App() {
         const isSecretPost = isSecretSuggestion(s);
         const isUnlocked = isPostUnlocked(s.id, isAdmin);
 
-        // Strip [SECRET_POST] prefix if present
-        const cleanTitle = (s.title || '').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
-        let cleanContent = (s.content || '').replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '');
+        // Strip [SECRET_POST], [AUTHOR:...], and [CATEGORY:...] prefix if present
+        const cleanTitle = (s.title || '')
+          .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
+          .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
+          .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
+        let cleanContent = (s.content || '')
+          .replace(/\[SECRET_POST(?::[^\]]*)?\]\s*/g, '')
+          .replace(/\[CATEGORY:[^\]]+\]\s*/g, '')
+          .replace(/\[AUTHOR:[^\]]+\]\s*/g, '');
 
         let finalTags = s.tags ? [...s.tags] : ['#마산삼진고', '#건의사항'];
         if (isSecretPost && !finalTags.includes('#비밀글')) {
@@ -494,13 +508,25 @@ export default function App() {
               ? s.content
               : resp.content;
 
+            // Preserve all comments on upvote
+            const sComments = Array.isArray(s.comments) ? s.comments : [];
+            const rComments = Array.isArray(resp.comments) ? resp.comments : [];
+            const commentMap = new Map<string, any>();
+            sComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
+            rComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
+            const mergedComments = Array.from(commentMap.values()).sort(
+              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+
             const merged: Suggestion = {
               ...s,
               ...resp,
               id: String(s.id),
+              upvotes: Number(resp.upvotes ?? s.upvotes),
               isSecret: isSecretPost,
               tags: combinedTags,
               content: preservedContent,
+              comments: mergedComments,
             };
             if (selectedSuggestion?.id === id) {
               setSelectedSuggestion(merged);
@@ -620,6 +646,16 @@ export default function App() {
               ? s.content
               : resp.content;
 
+            const sComments = Array.isArray(s.comments) ? s.comments : [];
+            const rComments = Array.isArray(resp.comments) ? resp.comments : [];
+            const commentMap = new Map<string, any>();
+            sComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
+            rComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
+            commentMap.set(newComment.id, newComment);
+            const mergedComments = Array.from(commentMap.values()).sort(
+              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+
             const merged: Suggestion = {
               ...s,
               ...resp,
@@ -627,6 +663,7 @@ export default function App() {
               isSecret: isSecretPost,
               tags: combinedTags,
               content: preservedContent,
+              comments: mergedComments,
             };
             if (selectedSuggestion?.id === suggestionId) {
               setSelectedSuggestion(merged);
@@ -847,6 +884,8 @@ export default function App() {
     }
 
     if (createdPost) {
+      createdPost.category = formData.category || createdPost.category;
+      createdPost.authorNickname = formData.authorNickname.trim() || createdPost.authorNickname || '익명의 삼진인';
       createdPost.isSecret = formData.isSecret || createdPost.isSecret;
       if (formData.secretPin) {
         createdPost.secretPin = formData.secretPin;

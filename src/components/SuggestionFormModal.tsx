@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Category } from '../types';
 import { CATEGORY_LABELS } from './SuggestionCard';
 import { getRandomAnonymousNickname } from '../data/initialData';
-import { X, MessageSquarePlus, Lock, Tag, Heart, Send } from 'lucide-react';
+import { X, MessageSquarePlus, Lock, Tag, Heart, Send, Sparkles, RefreshCw, UserCheck } from 'lucide-react';
 
 interface SuggestionFormModalProps {
   isOpen: boolean;
@@ -37,26 +37,49 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      setCategory('MEALS');
       setAuthorNickname(getRandomAnonymousNickname());
       setTitle('');
       setContent('');
       setIsSecret(false);
       setSecretPin('');
+      setTags(['#마산삼진고', '#학생건의']);
+      setTagInput('');
       setErrorMsg('');
     }
   }, [isOpen]);
 
+  const addTagString = (raw: string) => {
+    if (!raw) return;
+    // Split by commas, spaces, or # if user pastes multiple
+    const tokens = raw
+      .split(/[\s,]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    setTags((prev) => {
+      let next = [...prev];
+      for (let t of tokens) {
+        // Strip duplicate leading hashes and clean
+        t = t.replace(/^#+/, '');
+        if (!t) continue;
+        const formatted = `#${t}`;
+        if (!next.includes(formatted)) {
+          next.push(formatted);
+        }
+      }
+      return next;
+    });
+  };
+
   const handleAddTag = () => {
     if (!tagInput.trim()) return;
-    const cleanTag = tagInput.trim().startsWith('#') ? tagInput.trim() : `#${tagInput.trim()}`;
-    if (!tags.includes(cleanTag)) {
-      setTags([...tags, cleanTag]);
-    }
+    addTagString(tagInput);
     setTagInput('');
   };
 
   const handleRemoveTag = (tagToRemove: string) => {
-    setTags(tags.filter((t) => t !== tagToRemove));
+    setTags((prev) => prev.filter((t) => t !== tagToRemove));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -74,9 +97,33 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
       return;
     }
 
-    const finalTags = [...tags];
+    // Auto extract any remaining tag input or hashtags written in content
+    let finalTags = [...tags];
+    if (tagInput.trim()) {
+      const pending = tagInput
+        .split(/[\s,]+/)
+        .map((t) => t.replace(/^#+/, '').trim())
+        .filter(Boolean);
+      pending.forEach((p) => {
+        const f = `#${p}`;
+        if (!finalTags.includes(f)) finalTags.push(f);
+      });
+    }
+
+    // Also auto-extract any #hashtags written directly in content or title
+    const contentHashtags = (content.match(/#[A-Za-z0-9가-힣_]+/g) || []).map((t) => t.trim());
+    contentHashtags.forEach((ht) => {
+      if (!finalTags.includes(ht)) {
+        finalTags.push(ht);
+      }
+    });
+
     if (isSecret && !finalTags.includes('#비밀글')) {
       finalTags.push('#비밀글');
+    }
+
+    if (finalTags.length === 0) {
+      finalTags = ['#마산삼진고', '#건의사항'];
     }
 
     onSubmit({
@@ -94,6 +141,8 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
     setContent('');
     setIsSecret(false);
     setSecretPin('');
+    setTags(['#마산삼진고', '#학생건의']);
+    setTagInput('');
     setErrorMsg('');
     onClose();
   };
@@ -146,18 +195,35 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
           {/* Anonymous Nickname */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-bold text-[#2D2926]">익명 닉네임</label>
-              <span className="text-[11px] text-[#5F7161] font-bold bg-[#5F7161]/10 px-2 py-0.5 rounded-md">
-                자동 부여 (수정 불가)
+              <label className="text-xs font-bold text-[#2D2926] flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5 text-[#5F7161]" />
+                <span>부여된 익명 닉네임</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setAuthorNickname(getRandomAnonymousNickname())}
+                className="text-[11px] text-[#5F7161] hover:text-[#4D5C4F] font-bold bg-[#5F7161]/10 hover:bg-[#5F7161]/20 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
+                title="다른 닉네임으로 다시 뽑기"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>닉네임 새로고침</span>
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                value={authorNickname}
+                readOnly
+                tabIndex={-1}
+                className="w-full pl-4 pr-12 py-2.5 rounded-2xl border border-[#E6E2D3] text-sm font-bold bg-[#F4F1EA] text-[#2D2926] select-none focus:outline-none"
+              />
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-[#5F7161]">
+                <Sparkles className="w-4 h-4" />
               </span>
             </div>
-            <input
-              type="text"
-              value={authorNickname}
-              readOnly
-              tabIndex={-1}
-              className="w-full px-4 py-2.5 rounded-2xl border border-[#E6E2D3] text-sm font-bold bg-[#EFECE6] text-[#2D2926] cursor-not-allowed select-none focus:outline-none"
-            />
+            <p className="text-[11px] text-[#8C8479] mt-1 pl-1">
+              ※ 건의 목록 및 상세 화면에 위 닉네임으로 고유하게 표시됩니다.
+            </p>
           </div>
 
           {/* Title */}
@@ -190,49 +256,99 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
 
           {/* Tags Section */}
           <div>
-            <label className="block text-xs font-bold text-[#2D2926] mb-1.5">
-              태그 추가 (#버튼 클릭 또는 엔터)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-[#2D2926]">
+                태그 (키워드) <span className="text-[#8C8479] font-normal">(엔터, 스페이스바, 쉼표로 추가)</span>
+              </label>
+              <span className="text-[11px] text-[#5F7161] font-semibold">
+                본문에 #태그 작성 시 자동 추가
+              </span>
+            </div>
+
+            {/* Tag Input Field */}
             <div className="flex gap-2 mb-2">
-              <input
-                type="text"
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddTag();
-                  }
-                }}
-                placeholder="예: 급식개선, 야자실환경"
-                className="flex-1 px-3 py-2 rounded-xl border border-[#E6E2D3] text-xs focus:outline-none focus:ring-2 focus:ring-[#5F7161] text-[#2D2926]"
-              />
+              <div className="relative flex-1">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#5F7161]">
+                  #
+                </span>
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    // If user enters comma or space, auto create tag
+                    if (val.endsWith(' ') || val.endsWith(',')) {
+                      addTagString(val);
+                      setTagInput('');
+                    } else {
+                      setTagInput(val);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
+                      e.preventDefault();
+                      handleAddTag();
+                    }
+                  }}
+                  onBlur={() => {
+                    if (tagInput.trim()) {
+                      handleAddTag();
+                    }
+                  }}
+                  placeholder="태그 입력 후 엔터 (예: 급식, 시설, 야자실, 건의)"
+                  className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-[#E6E2D3] text-xs focus:outline-none focus:ring-2 focus:ring-[#5F7161] text-[#2D2926] bg-white font-medium"
+                />
+              </div>
               <button
                 type="button"
                 onClick={handleAddTag}
-                className="bg-[#2D2926] text-white text-xs font-bold px-3 py-2 rounded-xl hover:bg-[#4A443F]"
+                className="bg-[#5F7161] hover:bg-[#4D5C4F] text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-1 shrink-0"
               >
-                태그 추가
+                <Tag className="w-3.5 h-3.5" />
+                <span>추가</span>
               </button>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {tags.map((t, idx) => (
-                <span
-                  key={idx}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-[#5F7161] bg-[#F4F1EA] px-3 py-1 rounded-xl border border-[#E6E2D3]"
-                >
-                  <Tag className="w-3 h-3" />
-                  {t}
+            {/* Quick Recommended Tags */}
+            <div className="mb-3 flex items-center flex-wrap gap-1.5">
+              <span className="text-[10px] font-bold text-[#8C8479] mr-1">추천 태그:</span>
+              {['#급식개선', '#시설보수', '#야간자율학습', '#학습환경', '#학생복지', '#체육관', '#동아리'].map(
+                (quickTag) => (
                   <button
+                    key={quickTag}
                     type="button"
-                    onClick={() => handleRemoveTag(t)}
-                    className="text-[#8C8479] hover:text-[#2D2926] font-bold ml-1"
+                    onClick={() => addTagString(quickTag)}
+                    className="text-[10px] font-bold bg-[#F4F1EA] hover:bg-[#5F7161] hover:text-white text-[#5F7161] px-2 py-0.5 rounded-lg border border-[#E6E2D3] transition-colors"
                   >
-                    ×
+                    + {quickTag}
                   </button>
-                </span>
-              ))}
+                )
+              )}
+            </div>
+
+            {/* Active Added Tags */}
+            <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 bg-[#F4F1EA]/50 rounded-xl border border-[#E6E2D3]/60">
+              {tags.length === 0 ? (
+                <span className="text-[11px] text-[#8C8479] py-0.5">등록된 태그가 없습니다.</span>
+              ) : (
+                tags.map((t, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-[#5F7161] bg-white px-2.5 py-1 rounded-lg border border-[#5F7161]/30 shadow-2xs animate-in fade-in"
+                  >
+                    <Tag className="w-3 h-3 text-[#5F7161]" />
+                    {t.startsWith('#') ? t : `#${t}`}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTag(t)}
+                      className="text-[#8C8479] hover:text-rose-600 hover:bg-rose-50 rounded-full w-4 h-4 inline-flex items-center justify-center font-bold ml-1 transition-colors"
+                      title="태그 삭제"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))
+              )}
             </div>
           </div>
 
