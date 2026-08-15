@@ -76,8 +76,9 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
   const tagsMatch = contentStr.match(/\[TAGS:([^\]]+)\]/i) || titleStr.match(/\[TAGS:([^\]]+)\]/i);
   if (tagsMatch && tagsMatch[1]) {
     tags = tagsMatch[1]
+      .replace(/^[\{\[]|[\}\]]$/g, '')
       .split(',')
-      .map((t) => t.trim())
+      .map((t) => t.replace(/["']/g, '').trim())
       .filter(Boolean)
       .map((t) => (t.startsWith('#') ? t : `#${t}`));
   }
@@ -111,6 +112,60 @@ export interface Comment {
   content: string;
   createdAt: string;
 }
+
+/**
+ * Safely merge and deduplicate comments, preventing double rendering from optimistic updates vs server responses.
+ */
+export const deduplicateComments = (comments?: (Comment | null | undefined)[]): Comment[] => {
+  if (!Array.isArray(comments)) return [];
+  const result: Comment[] = [];
+  const seenIds = new Set<string>();
+
+  for (const c of comments) {
+    if (!c || !c.content) continue;
+    const cleanContent = c.content.trim();
+    const cleanNick = (c.authorNickname || '익명의 삼진인').trim();
+
+    // Check if exact ID already seen
+    if (c.id && seenIds.has(c.id)) {
+      continue;
+    }
+
+    // Check if matching content + author exists (e.g. optimistic temp ID vs server ID)
+    const existingIndex = result.findIndex((existing) => {
+      if (existing.id && c.id && existing.id === c.id) return true;
+      const sameContent = existing.content.trim() === cleanContent;
+      const sameAuthor = (existing.authorNickname || '').trim() === cleanNick;
+      const sameOfficial = Boolean(existing.isOfficial) === Boolean(c.isOfficial);
+
+      if (sameContent && sameAuthor && sameOfficial) {
+        // If created within 60 seconds of each other, consider them the same comment
+        const t1 = new Date(existing.createdAt).getTime();
+        const t2 = new Date(c.createdAt).getTime();
+        if (isNaN(t1) || isNaN(t2) || Math.abs(t1 - t2) < 60000) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (existingIndex !== -1) {
+      const existing = result[existingIndex];
+      // If existing is temporary (starts with 'comment-') and new one is server assigned (e.g. 'c-'), prefer server version
+      if (existing.id?.startsWith('comment-') && !c.id?.startsWith('comment-')) {
+        seenIds.delete(existing.id);
+        result[existingIndex] = c;
+        if (c.id) seenIds.add(c.id);
+      }
+      continue;
+    }
+
+    if (c.id) seenIds.add(c.id);
+    result.push(c);
+  }
+
+  return result.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+};
 
 export interface OfficialResponse {
   authorName: string;      // 예: '학생회장 김삼진', '학생지도부 교사'

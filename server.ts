@@ -53,26 +53,61 @@ function savePersistedComments(data: Record<string, Comment[]>) {
 
 const persistentCommentsStore: Record<string, Comment[]> = loadPersistedComments();
 
+function deduplicateCommentList(comments: (Comment | null | undefined)[]): Comment[] {
+  if (!Array.isArray(comments)) return [];
+  const result: Comment[] = [];
+  const seenIds = new Set<string>();
+
+  for (const c of comments) {
+    if (!c || !c.content) continue;
+    const cleanContent = c.content.trim();
+    const cleanNick = (c.authorNickname || '익명').trim();
+
+    if (c.id && seenIds.has(c.id)) continue;
+
+    const existingIndex = result.findIndex((existing) => {
+      if (existing.id && c.id && existing.id === c.id) return true;
+      const sameContent = existing.content.trim() === cleanContent;
+      const sameAuthor = (existing.authorNickname || '').trim() === cleanNick;
+      const sameOfficial = Boolean(existing.isOfficial) === Boolean(c.isOfficial);
+
+      if (sameContent && sameAuthor && sameOfficial) {
+        const t1 = new Date(existing.createdAt).getTime();
+        const t2 = new Date(c.createdAt).getTime();
+        if (isNaN(t1) || isNaN(t2) || Math.abs(t1 - t2) < 60000) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (existingIndex !== -1) {
+      const existing = result[existingIndex];
+      if (existing.id?.startsWith('comment-') && !c.id?.startsWith('comment-')) {
+        seenIds.delete(existing.id);
+        result[existingIndex] = c;
+        if (c.id) seenIds.add(c.id);
+      }
+      continue;
+    }
+
+    if (c.id) seenIds.add(c.id);
+    result.push(c);
+  }
+
+  return result.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
 function getCombinedComments(suggestionId: string, directComments: Comment[] = []): Comment[] {
   const stringId = String(suggestionId);
   const fileComments = persistentCommentsStore[stringId] || [];
-  const map = new Map<string, Comment>();
-  
-  fileComments.forEach((c) => c && c.id && map.set(c.id, c));
-  directComments.forEach((c) => c && c.id && map.set(c.id, c));
-  
-  return Array.from(map.values()).sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-  );
+  return deduplicateCommentList([...fileComments, ...directComments]);
 }
 
 function saveCombinedComment(suggestionId: string, newComment: Comment): Comment[] {
   const stringId = String(suggestionId);
   const existing = persistentCommentsStore[stringId] || [];
-  const filtered = existing.filter((c) => c.id !== newComment.id);
-  const updated = [...filtered, newComment].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-  );
+  const updated = deduplicateCommentList([...existing, newComment]);
   persistentCommentsStore[stringId] = updated;
   savePersistedComments(persistentCommentsStore);
   return updated;
@@ -131,15 +166,29 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
   const effectivePin = item.secretPin || secretPinStore.get(stringId);
   const effectiveAuthor = authorNicknameStore.get(stringId) || item.authorNickname || '익명의 삼진인';
   const effectiveCategory = categoryStore.get(stringId) || (item.category && item.category !== 'OTHER' ? item.category : undefined) || 'OTHER';
-  const effectiveTags = tagsStore.get(stringId) || (Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['#마산삼진고', '#건의사항']);
+  
+  const rawTags = [
+    ...(tagsStore.get(stringId) || []),
+    ...(Array.isArray(item.tags) ? item.tags : []),
+  ];
+  let itemTags = Array.from(
+    new Set(
+      rawTags
+        .map((t: string) => (t.startsWith('#') ? t : `#${t}`))
+        .filter((t: string) => t.length > 1)
+    )
+  );
+  if (itemTags.length === 0) {
+    itemTags = ['#마산삼진고', '#건의사항'];
+  }
+
   const isItemSecret = Boolean(
     item.isSecret ||
-      (Array.isArray(effectiveTags) && (effectiveTags.includes('#비밀글') || effectiveTags.includes('비밀글'))) ||
+      (Array.isArray(itemTags) && (itemTags.includes('#비밀글') || itemTags.includes('비밀글'))) ||
       effectivePin ||
       secretPinStore.has(stringId)
   );
 
-  let itemTags = Array.isArray(effectiveTags) ? [...effectiveTags] : ['#마산삼진고', '#건의사항'];
   if (isItemSecret && !itemTags.includes('#비밀글')) {
     itemTags.push('#비밀글');
   }
@@ -247,10 +296,20 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
           categoryStore.set(stringId, memItem.category);
         }
 
-        if (item.tags && Array.isArray(item.tags) && item.tags.length > 0) {
-          tagsStore.set(stringId, item.tags);
-        } else if (memItem?.tags && Array.isArray(memItem.tags) && memItem.tags.length > 0) {
-          tagsStore.set(stringId, memItem.tags);
+        const candidateTags = [
+          ...(tagsStore.get(stringId) || []),
+          ...(Array.isArray(item.tags) ? item.tags : []),
+          ...(Array.isArray(memItem?.tags) ? memItem.tags : []),
+        ];
+        const uniqueTags = Array.from(
+          new Set(
+            candidateTags
+              .map((t) => (t.startsWith('#') ? t : `#${t}`))
+              .filter((t) => t.length > 1)
+          )
+        );
+        if (uniqueTags.length > 0) {
+          tagsStore.set(stringId, uniqueTags);
         }
 
         if (item.content && !item.content.startsWith('🔒 비밀글입니다')) {

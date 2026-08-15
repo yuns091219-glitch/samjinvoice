@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Suggestion, Status, Comment, isSecretSuggestion, isPostUnlocked, markPostAsUnlocked, stripMetadataMarkers } from '../types';
+import { Suggestion, Status, Comment, isSecretSuggestion, isPostUnlocked, markPostAsUnlocked, stripMetadataMarkers, deduplicateComments } from '../types';
 import { STATUS_CONFIG, CATEGORY_LABELS } from './SuggestionCard';
 import { getRandomAnonymousNickname } from '../data/initialData';
 import { verifySuggestionPin } from '../lib/supabase';
@@ -99,12 +99,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
         if (!prev) return suggestion;
         const prevComments = prev.comments || [];
         const nextComments = suggestion.comments || [];
-        const commentMap = new Map();
-        prevComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
-        nextComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
-        const mergedComments = Array.from(commentMap.values()).sort(
-          (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
+        const mergedComments = deduplicateComments([...prevComments, ...nextComments]);
 
         return {
           ...prev,
@@ -112,6 +107,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
           upvotes: suggestion.upvotes,
           status: suggestion.status,
           officialResponse: suggestion.officialResponse,
+          tags: suggestion.tags || prev.tags,
         };
       });
     }
@@ -171,26 +167,8 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     if (!commentContent.trim()) return;
     const contentToSubmit = commentContent.trim();
     const nickToSubmit = commentNickname;
-    onAddComment(activeSuggestion.id, nickToSubmit, contentToSubmit, isAdmin);
 
-    // Optimistically update active suggestion in modal
-    const optimisticComment: Comment = {
-      id: `comment-modal-${Date.now()}`,
-      authorNickname: nickToSubmit,
-      content: contentToSubmit,
-      createdAt: new Date().toISOString(),
-      isOfficial: Boolean(isAdmin),
-      officialRole: isAdmin ? '학생회' : undefined,
-    };
-    if (unlockedSuggestion) {
-      setUnlockedSuggestion((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          comments: [...(prev.comments || []), optimisticComment],
-        };
-      });
-    }
+    onAddComment(activeSuggestion.id, nickToSubmit, contentToSubmit, isAdmin);
 
     setCommentContent('');
     setCommentNickname(getRandomAnonymousNickname());

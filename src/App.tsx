@@ -11,6 +11,7 @@ import {
   markPostAsUnlocked,
   stripMetadataMarkers,
   extractMetadataFromContent,
+  deduplicateComments,
 } from './types';
 import { Navbar } from './components/Navbar';
 import { SchoolInfoBanner } from './components/SchoolInfoBanner';
@@ -191,7 +192,7 @@ export default function App() {
         const unsyncedLocal = cachedPosts.filter((s) => (s as any).isUnsynced && !remoteIds.has(s.id));
 
         const mergedList = fetchedData.map((remoteItem) => {
-          const cachedItem = cachedPosts.find((s) => s.id === remoteItem.id);
+          const cachedItem = cachedPosts.find((s) => String(s.id) === String(remoteItem.id));
           if (!cachedItem) return remoteItem;
 
           const remoteComments = Array.isArray(remoteItem.comments) ? remoteItem.comments : [];
@@ -217,9 +218,21 @@ export default function App() {
           const resolvedCategory = (remoteItem.category && remoteItem.category !== 'OTHER')
             ? normalizeCategory(remoteItem.category)
             : (cachedItem?.category ? normalizeCategory(cachedItem.category) : normalizeCategory(remoteItem.category));
-          const resolvedTags = (Array.isArray(remoteItem.tags) && remoteItem.tags.length > 0 && !(remoteItem.tags.length <= 2 && remoteItem.tags.includes('#마산삼진고') && remoteItem.tags.includes('#건의사항') && Array.isArray(cachedItem?.tags) && cachedItem.tags.length > 0))
-            ? remoteItem.tags
-            : (Array.isArray(cachedItem?.tags) && cachedItem.tags.length > 0 ? cachedItem.tags : (remoteItem.tags || ['#마산삼진고', '#건의사항']));
+          
+          const combinedCandidateTags = [
+            ...(Array.isArray(remoteItem.tags) ? remoteItem.tags : []),
+            ...(Array.isArray(cachedItem?.tags) ? cachedItem.tags : []),
+          ];
+          let resolvedTags = Array.from(
+            new Set(
+              combinedCandidateTags
+                .map((t) => (t.startsWith('#') ? t : `#${t}`))
+                .filter((t) => t.length > 1)
+            )
+          );
+          if (resolvedTags.length === 0) {
+            resolvedTags = ['#마산삼진고', '#건의사항'];
+          }
 
           return {
             ...remoteItem,
@@ -366,11 +379,21 @@ export default function App() {
           ? s.authorNickname
           : (meta.authorNickname || s.authorNickname || '익명의 삼진인');
 
-        const candidateTags = (Array.isArray(s.tags) && s.tags.length > 0)
-          ? s.tags
-          : (meta.tags && meta.tags.length > 0 ? meta.tags : ['#마산삼진고', '#건의사항']);
+        const candidateTags = [
+          ...(Array.isArray(s.tags) ? s.tags : []),
+          ...(Array.isArray(meta.tags) ? meta.tags : []),
+        ];
 
-        let finalTags = candidateTags.map((t: string) => (t.startsWith('#') ? t : `#${t}`));
+        let finalTags = Array.from(
+          new Set(
+            candidateTags
+              .map((t: string) => (t.startsWith('#') ? t : `#${t}`))
+              .filter((t: string) => t.length > 1)
+          )
+        );
+        if (finalTags.length === 0) {
+          finalTags = ['#마산삼진고', '#건의사항'];
+        }
         if (isSecretPost && !finalTags.includes('#비밀글')) {
           finalTags.push('#비밀글');
         }
@@ -524,12 +547,7 @@ export default function App() {
             // Preserve all comments on upvote
             const sComments = Array.isArray(s.comments) ? s.comments : [];
             const rComments = Array.isArray(resp.comments) ? resp.comments : [];
-            const commentMap = new Map<string, any>();
-            sComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
-            rComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
-            const mergedComments = Array.from(commentMap.values()).sort(
-              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
+            const mergedComments = deduplicateComments([...sComments, ...rComments]);
 
             const merged: Suggestion = {
               ...s,
@@ -582,7 +600,7 @@ export default function App() {
         if (s.id === suggestionId) {
           return {
             ...s,
-            comments: [...(s.comments || []), newComment],
+            comments: deduplicateComments([...(s.comments || []), newComment]),
           };
         }
         return s;
@@ -599,7 +617,7 @@ export default function App() {
       if (prev && prev.id === suggestionId) {
         return {
           ...prev,
-          comments: [...(prev.comments || []), newComment],
+          comments: deduplicateComments([...(prev.comments || []), newComment]),
         };
       }
       return prev;
@@ -639,13 +657,6 @@ export default function App() {
 
     if (updatedPost) {
       const resp = updatedPost;
-      // Guarantee newComment is included in resp comments array
-      if (
-        !resp.comments ||
-        !resp.comments.some((c) => c.id === newComment.id || (c.content === newComment.content && c.authorNickname === newComment.authorNickname))
-      ) {
-        resp.comments = [...(resp.comments || []), newComment];
-      }
 
       setSuggestions((prev) => {
         const next = prev.map((s) => {
@@ -661,13 +672,7 @@ export default function App() {
 
             const sComments = Array.isArray(s.comments) ? s.comments : [];
             const rComments = Array.isArray(resp.comments) ? resp.comments : [];
-            const commentMap = new Map<string, any>();
-            sComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
-            rComments.forEach((c) => c && c.id && commentMap.set(c.id, c));
-            commentMap.set(newComment.id, newComment);
-            const mergedComments = Array.from(commentMap.values()).sort(
-              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
+            const mergedComments = deduplicateComments([...sComments, ...rComments]);
 
             const merged: Suggestion = {
               ...s,

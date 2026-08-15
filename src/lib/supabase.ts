@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Suggestion, Category, Status, normalizeCategory, stripMetadataMarkers, extractMetadataFromContent } from '../types';
+import { Suggestion, Category, Status, normalizeCategory, stripMetadataMarkers, extractMetadataFromContent, deduplicateComments } from '../types';
 
 // Retrieve credentials from environment
 const meta = typeof import.meta !== 'undefined' ? (import.meta as any) : {};
@@ -61,22 +61,46 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
 
   let tagsArr: string[] = [];
   if (Array.isArray(row.tags)) {
-    tagsArr = row.tags.map((t: any) => String(t).trim()).filter(Boolean);
+    tagsArr = row.tags
+      .map((t: any) => String(t).replace(/^[\{\[]|[\}\]]$/g, '').replace(/["']/g, '').trim())
+      .filter(Boolean);
   } else if (typeof row.tags === 'string' && row.tags.trim().length > 0) {
     try {
       const parsed = JSON.parse(row.tags);
       if (Array.isArray(parsed)) {
-        tagsArr = parsed.map((t: any) => String(t).trim()).filter(Boolean);
+        tagsArr = parsed
+          .map((t: any) => String(t).replace(/["']/g, '').trim())
+          .filter(Boolean);
       } else {
-        tagsArr = row.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+        tagsArr = row.tags
+          .replace(/^[\{\[]|[\}\]]$/g, '')
+          .split(',')
+          .map((t: string) => t.replace(/["']/g, '').trim())
+          .filter(Boolean);
       }
     } catch {
-      tagsArr = row.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+      tagsArr = row.tags
+        .replace(/^[\{\[]|[\}\]]$/g, '')
+        .split(',')
+        .map((t: string) => t.replace(/["']/g, '').trim())
+        .filter(Boolean);
     }
   }
 
-  // Use extracted tags from content markers if available or row.tags
-  let effectiveTags = extracted.tags && extracted.tags.length > 0 ? extracted.tags : tagsArr;
+  // Combine tags extracted from content markers and row.tags
+  const combinedRawTags = [
+    ...(Array.isArray(extracted.tags) ? extracted.tags : []),
+    ...tagsArr,
+  ];
+
+  let effectiveTags = Array.from(
+    new Set(
+      combinedRawTags
+        .map((t) => (t.startsWith('#') ? t : `#${t}`))
+        .filter((t) => t.length > 1)
+    )
+  );
+
   if (effectiveTags.length === 0) {
     effectiveTags = ['#마산삼진고', '#건의사항'];
   }
@@ -154,7 +178,7 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     imageUrl: row.image_url || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.created_at || new Date().toISOString(),
-    comments: parsedComments,
+    comments: deduplicateComments(parsedComments),
     officialResponse: row.admin_reply
       ? {
           authorName: '학생회장',
@@ -373,8 +397,7 @@ export const addCommentToSupabase = async (
     }
 
     // Deduplicate comment if already exists
-    const withoutDup = existing.filter((c: any) => c.id !== newComment.id);
-    const updatedComments = [...withoutDup, newComment];
+    const updatedComments = deduplicateComments([...existing, newComment]);
 
     // Variant 1: JSON array update
     let res = await supabase

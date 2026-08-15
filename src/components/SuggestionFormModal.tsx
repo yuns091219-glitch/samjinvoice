@@ -122,9 +122,15 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
       finalTags.push('#비밀글');
     }
 
-    if (finalTags.length === 0) {
-      finalTags = ['#마산삼진고', '#건의사항'];
-    }
+    const uniqueFinalTags = Array.from(
+      new Set(
+        finalTags
+          .map((t) => (t.startsWith('#') ? t : `#${t}`))
+          .filter((t) => t.length > 1)
+      )
+    );
+
+    const submittedTags = uniqueFinalTags.length > 0 ? uniqueFinalTags : ['#마산삼진고', '#건의사항'];
 
     onSubmit({
       category,
@@ -133,7 +139,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
       authorNickname: authorNickname.trim() || '익명의 삼진인',
       isSecret,
       secretPin: isSecret ? secretPin.trim() : undefined,
-      tags: finalTags,
+      tags: submittedTags,
     });
 
     // Reset Form
@@ -276,8 +282,8 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
                   value={tagInput}
                   onChange={(e) => {
                     const val = e.target.value;
-                    // If user enters comma or space, auto create tag
-                    if (val.endsWith(' ') || val.endsWith(',')) {
+                    // If user enters comma or newline, auto create tag
+                    if (val.includes(',') || val.includes('\n')) {
                       addTagString(val);
                       setTagInput('');
                     } else {
@@ -285,7 +291,11 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
                     }
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
+                    if (e.key === ',' || e.key === 'Tab') {
+                      e.preventDefault();
+                      handleAddTag();
+                    } else if (e.key === 'Enter') {
+                      if ((e.nativeEvent as any).isComposing) return;
                       e.preventDefault();
                       handleAddTag();
                     }
