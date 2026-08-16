@@ -18,6 +18,18 @@ export const normalizeCategory = (cat?: string): Category => {
   return 'OTHER';
 };
 
+export interface ExtractedMetadata {
+  cleanTitle: string;
+  cleanContent: string;
+  pin?: string;
+  category?: Category;
+  authorNickname?: string;
+  tags?: string[];
+  comments?: Comment[];
+  officialResponse?: OfficialResponse;
+  isSecret?: boolean;
+}
+
 /**
  * Strip all internal metadata tags from text
  */
@@ -28,18 +40,10 @@ export const stripMetadataMarkers = (text?: string): string => {
     .replace(/\[CATEGORY:[^\]]+\]\s*/gi, '')
     .replace(/\[AUTHOR:[^\]]+\]\s*/gi, '')
     .replace(/\[TAGS:[^\]]+\]\s*/gi, '')
+    .replace(/\[COMMENTS:[^\]]+\]\s*/gi, '')
+    .replace(/\[OFFICIAL_RESPONSE:[^\]]+\]\s*/gi, '')
     .trim();
 };
-
-export interface ExtractedMetadata {
-  cleanTitle: string;
-  cleanContent: string;
-  pin?: string;
-  category?: Category;
-  authorNickname?: string;
-  tags?: string[];
-  isSecret?: boolean;
-}
 
 export const extractMetadataFromContent = (rawTitle?: string, rawContent?: string): ExtractedMetadata => {
   const contentStr = String(rawContent || '');
@@ -49,6 +53,8 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
   let category: Category | undefined;
   let authorNickname: string | undefined;
   let tags: string[] | undefined;
+  let comments: Comment[] | undefined;
+  let officialResponse: OfficialResponse | undefined;
   let isSecret = false;
 
   // 1. PIN
@@ -83,6 +89,38 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
       .map((t) => (t.startsWith('#') ? t : `#${t}`));
   }
 
+  // 5. Comments
+  const commentsMatch = contentStr.match(/\[COMMENTS:([^\]]+)\]/i);
+  if (commentsMatch && commentsMatch[1]) {
+    try {
+      const decoded = decodeURIComponent(commentsMatch[1]);
+      const parsed = JSON.parse(decoded);
+      if (Array.isArray(parsed)) {
+        comments = deduplicateComments(parsed);
+      }
+    } catch {
+      try {
+        const parsed = JSON.parse(commentsMatch[1]);
+        if (Array.isArray(parsed)) {
+          comments = deduplicateComments(parsed);
+        }
+      } catch {}
+    }
+  }
+
+  // 6. Official Response
+  const respMatch = contentStr.match(/\[OFFICIAL_RESPONSE:([^\]]+)\]/i);
+  if (respMatch && respMatch[1]) {
+    try {
+      const decoded = decodeURIComponent(respMatch[1]);
+      officialResponse = JSON.parse(decoded);
+    } catch {
+      try {
+        officialResponse = JSON.parse(respMatch[1]);
+      } catch {}
+    }
+  }
+
   const cleanTitle = stripMetadataMarkers(titleStr) || '제목 없음';
   const cleanContent = stripMetadataMarkers(contentStr);
 
@@ -93,6 +131,8 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
     category,
     authorNickname,
     tags,
+    comments,
+    officialResponse,
     isSecret,
   };
 };

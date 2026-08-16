@@ -139,6 +139,12 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     }
   }
 
+  const allRawComments = [
+    ...parsedComments,
+    ...(Array.isArray(extracted.comments) ? extracted.comments : []),
+  ];
+  const mergedComments = deduplicateComments(allRawComments);
+
   const resolvedAuthor =
     extracted.authorNickname ||
     (row.author_name && row.author_name !== '익명의 삼진인' ? row.author_name : undefined) ||
@@ -164,6 +170,16 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     row.type
   );
 
+  const resolvedOfficialResponse = row.admin_reply
+    ? {
+        authorName: '학생회장',
+        department: '제53대 삼진고 학생회',
+        content: row.admin_reply,
+        updatedAt: row.created_at || new Date().toISOString(),
+        status: mapStatusFromDB(row.status),
+      }
+    : (extracted.officialResponse || undefined);
+
   return {
     id: String(row.id),
     category: resolvedCategory,
@@ -178,16 +194,8 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     imageUrl: row.image_url || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.created_at || new Date().toISOString(),
-    comments: deduplicateComments(parsedComments),
-    officialResponse: row.admin_reply
-      ? {
-          authorName: '학생회장',
-          department: '제53대 삼진고 학생회',
-          content: row.admin_reply,
-          updatedAt: row.created_at || new Date().toISOString(),
-          status: mapStatusFromDB(row.status),
-        }
-      : undefined,
+    comments: mergedComments,
+    officialResponse: resolvedOfficialResponse,
   };
 };
 
@@ -206,7 +214,36 @@ export const fetchSuggestionsFromSupabase = async (): Promise<Suggestion[]> => {
       return [];
     }
 
-    return (data || []).map(mapRowToSuggestion);
+    // Try fetching separate comments table if it exists
+    let commentsBySuggestionId: Record<string, any[]> = {};
+    try {
+      const { data: commentsData } = await supabase.from('comments').select('*');
+      if (Array.isArray(commentsData)) {
+        commentsData.forEach((c: any) => {
+          const sId = String(c.suggestion_id || c.post_id || '');
+          if (sId) {
+            if (!commentsBySuggestionId[sId]) commentsBySuggestionId[sId] = [];
+            commentsBySuggestionId[sId].push({
+              id: String(c.id),
+              authorNickname: c.author_nickname || c.author_name || c.nickname || '익명의 삼진인',
+              content: c.content || '',
+              createdAt: c.created_at || new Date().toISOString(),
+              isOfficial: Boolean(c.is_official),
+              officialRole: c.official_role,
+            });
+          }
+        });
+      }
+    } catch {}
+
+    return (data || []).map((row: any) => {
+      const mapped = mapRowToSuggestion(row);
+      const tableComments = commentsBySuggestionId[String(row.id)] || [];
+      if (tableComments.length > 0) {
+        mapped.comments = deduplicateComments([...(mapped.comments || []), ...tableComments]);
+      }
+      return mapped;
+    });
   } catch (err: any) {
     console.warn('Supabase fetch network exception:', err?.message || err);
     return [];
@@ -291,6 +328,18 @@ export const insertSuggestionToSupabase = async (payload: {
       title: rawTitleClean,
       content: cleanContent,
       category: payload.category,
+      category_name: payload.category,
+      is_secret: payload.isSecret,
+      author_nickname: authorName,
+      likes: 0,
+      status: '접수중',
+      secret_pin: pin,
+      tags: tagsList.join(','),
+    },
+    {
+      title: rawTitleClean,
+      content: cleanContent,
+      category: payload.category,
       is_secret: payload.isSecret,
       author_nickname: authorName,
       likes: 0,
@@ -324,6 +373,12 @@ export const insertSuggestionToSupabase = async (payload: {
       category: payload.category,
       status: '접수중',
       tags: tagsList,
+    },
+    {
+      title: rawTitleClean,
+      content: cleanContent,
+      category: payload.category,
+      status: '접수중',
     },
     {
       title: rawTitleClean,
@@ -362,7 +417,7 @@ export const insertSuggestionToSupabase = async (payload: {
 };
 
 /**
- * 3. 댓글 추가 기능: Supabase DB comments 컬럼 (JSON/String/Table) 업데이트
+ * 3. 댓글 추가 기능: Supabase DB comments 컬럼 및 content 메타데이터 업데이트 (Netlify 완벽 호환)
  */
 export const addCommentToSupabase = async (
   suggestionId: string,
@@ -384,50 +439,97 @@ export const addCommentToSupabase = async (
 
     let existing: any[] = [];
     if (current) {
+      const ext = extractMetadataFromContent(current.title, current.content);
+      let colComments: any[] = [];
       if (Array.isArray(current.comments)) {
-        existing = current.comments;
+        colComments = current.comments;
       } else if (typeof current.comments === 'string' && current.comments.trim().length > 0) {
         try {
           const p = JSON.parse(current.comments);
-          if (Array.isArray(p)) existing = p;
+          if (Array.isArray(p)) colComments = p;
         } catch {
-          existing = [];
+          colComments = [];
         }
       }
+      existing = deduplicateComments([
+        ...colComments,
+        ...(Array.isArray(ext.comments) ? ext.comments : []),
+      ]);
     }
 
     // Deduplicate comment if already exists
     const updatedComments = deduplicateComments([...existing, newComment]);
 
-    // Variant 1: JSON array update
-    let res = await supabase
-      .from('suggestions')
-      .update({ comments: updatedComments })
-      .eq('id', suggestionId)
-      .select()
-      .single();
+    // Encode comments into content so it is 100% saved even if comments column does not exist
+    let newContent = '';
+    if (current) {
+      const ext = extractMetadataFromContent(current.title, current.content);
+      const author = ext.authorNickname || current.author_name || current.author_nickname || '익명의 삼진인';
+      const cat = ext.category || current.category || 'OTHER';
+      const tags = ext.tags || (Array.isArray(current.tags) ? current.tags : ['#마산삼진고', '#건의사항']);
+      const isSecret = Boolean(ext.isSecret || current.is_secret);
+      const pin = ext.pin || current.secret_pin || '';
+      const rawClean = stripMetadataMarkers(current.content);
 
-    if (!res.error && res.data) {
-      const mapped = mapRowToSuggestion(res.data);
-      mapped.comments = updatedComments;
-      return mapped;
+      const secretTag = isSecret ? `[SECRET_POST:${pin}]` : '';
+      const categoryTag = `[CATEGORY:${cat}]`;
+      const authorTag = `[AUTHOR:${author}]`;
+      const tagsTag = tags.length > 0 ? `[TAGS:${tags.join(',')}]` : '';
+      const commentsTag = `[COMMENTS:${encodeURIComponent(JSON.stringify(updatedComments))}]`;
+      newContent = `${secretTag}${categoryTag}${authorTag}${tagsTag}${commentsTag} ${rawClean}`.trim();
     }
 
-    // Variant 2: JSON stringified update
-    res = await supabase
-      .from('suggestions')
-      .update({ comments: JSON.stringify(updatedComments) })
-      .eq('id', suggestionId)
-      .select()
-      .single();
+    // Variant 1: Both comments column and updated content
+    try {
+      const { data, error } = await supabase
+        .from('suggestions')
+        .update({ comments: updatedComments, content: newContent || undefined })
+        .eq('id', suggestionId)
+        .select()
+        .single();
 
-    if (!res.error && res.data) {
-      const mapped = mapRowToSuggestion(res.data);
-      mapped.comments = updatedComments;
-      return mapped;
+      if (!error && data) {
+        const mapped = mapRowToSuggestion(data);
+        mapped.comments = updatedComments;
+        return mapped;
+      }
+    } catch {}
+
+    // Variant 2: Stringified comments column and updated content
+    try {
+      const { data, error } = await supabase
+        .from('suggestions')
+        .update({ comments: JSON.stringify(updatedComments), content: newContent || undefined })
+        .eq('id', suggestionId)
+        .select()
+        .single();
+
+      if (!error && data) {
+        const mapped = mapRowToSuggestion(data);
+        mapped.comments = updatedComments;
+        return mapped;
+      }
+    } catch {}
+
+    // Variant 3: Update content with comments metadata marker (guaranteed to succeed on any schema)
+    if (newContent) {
+      try {
+        const { data, error } = await supabase
+          .from('suggestions')
+          .update({ content: newContent })
+          .eq('id', suggestionId)
+          .select()
+          .single();
+
+        if (!error && data) {
+          const mapped = mapRowToSuggestion(data);
+          mapped.comments = updatedComments;
+          return mapped;
+        }
+      } catch {}
     }
 
-    // Variant 3: If separate comments table exists
+    // Variant 4: If separate comments table exists
     try {
       await supabase.from('comments').insert([
         {
@@ -456,7 +558,7 @@ export const addCommentToSupabase = async (
 };
 
 /**
- * 3-1. 댓글 삭제 기능: Supabase DB comments JSON 컬럼에서 댓글 제거
+ * 3-1. 댓글 삭제 기능: Supabase DB comments JSON 컬럼 및 content 메타데이터에서 댓글 제거
  */
 export const deleteCommentFromSupabase = async (
   suggestionId: string,
@@ -471,46 +573,76 @@ export const deleteCommentFromSupabase = async (
 
     let existing: any[] = [];
     if (current) {
+      const ext = extractMetadataFromContent(current.title, current.content);
+      let colComments: any[] = [];
       if (Array.isArray(current.comments)) {
-        existing = current.comments;
+        colComments = current.comments;
       } else if (typeof current.comments === 'string' && current.comments.trim().length > 0) {
         try {
           const p = JSON.parse(current.comments);
-          if (Array.isArray(p)) existing = p;
+          if (Array.isArray(p)) colComments = p;
         } catch {
-          existing = [];
+          colComments = [];
         }
       }
+      existing = deduplicateComments([
+        ...colComments,
+        ...(Array.isArray(ext.comments) ? ext.comments : []),
+      ]);
     }
 
     const updatedComments = existing.filter((c: any) => c.id !== commentId);
 
-    // Variant 1: JSON array update
-    let res = await supabase
-      .from('suggestions')
-      .update({ comments: updatedComments })
-      .eq('id', suggestionId)
-      .select()
-      .single();
+    let newContent = '';
+    if (current) {
+      const ext = extractMetadataFromContent(current.title, current.content);
+      const author = ext.authorNickname || current.author_name || current.author_nickname || '익명의 삼진인';
+      const cat = ext.category || current.category || 'OTHER';
+      const tags = ext.tags || (Array.isArray(current.tags) ? current.tags : ['#마산삼진고', '#건의사항']);
+      const isSecret = Boolean(ext.isSecret || current.is_secret);
+      const pin = ext.pin || current.secret_pin || '';
+      const rawClean = stripMetadataMarkers(current.content);
 
-    if (!res.error && res.data) {
-      const mapped = mapRowToSuggestion(res.data);
-      mapped.comments = updatedComments;
-      return mapped;
+      const secretTag = isSecret ? `[SECRET_POST:${pin}]` : '';
+      const categoryTag = `[CATEGORY:${cat}]`;
+      const authorTag = `[AUTHOR:${author}]`;
+      const tagsTag = tags.length > 0 ? `[TAGS:${tags.join(',')}]` : '';
+      const commentsTag = updatedComments.length > 0 ? `[COMMENTS:${encodeURIComponent(JSON.stringify(updatedComments))}]` : '';
+      newContent = `${secretTag}${categoryTag}${authorTag}${tagsTag}${commentsTag} ${rawClean}`.trim();
     }
 
-    // Variant 2: JSON stringified update
-    res = await supabase
-      .from('suggestions')
-      .update({ comments: JSON.stringify(updatedComments) })
-      .eq('id', suggestionId)
-      .select()
-      .single();
+    // Try updating comments column and content
+    try {
+      const { data, error } = await supabase
+        .from('suggestions')
+        .update({ comments: updatedComments, content: newContent || undefined })
+        .eq('id', suggestionId)
+        .select()
+        .single();
 
-    if (!res.error && res.data) {
-      const mapped = mapRowToSuggestion(res.data);
-      mapped.comments = updatedComments;
-      return mapped;
+      if (!error && data) {
+        const mapped = mapRowToSuggestion(data);
+        mapped.comments = updatedComments;
+        return mapped;
+      }
+    } catch {}
+
+    // Try updating content only
+    if (newContent) {
+      try {
+        const { data, error } = await supabase
+          .from('suggestions')
+          .update({ content: newContent })
+          .eq('id', suggestionId)
+          .select()
+          .single();
+
+        if (!error && data) {
+          const mapped = mapRowToSuggestion(data);
+          mapped.comments = updatedComments;
+          return mapped;
+        }
+      } catch {}
     }
 
     try {
@@ -570,9 +702,69 @@ export const updateStatusInSupabase = async (
     updatePayload.admin_reply = adminReply;
   }
 
+  // Variant 1: Update status + admin_reply
+  try {
+    const { data, error } = await supabase
+      .from('suggestions')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      return mapRowToSuggestion(data);
+    }
+  } catch {}
+
+  // Variant 2: Update status + content with encoded official response
+  try {
+    const { data: current } = await supabase
+      .from('suggestions')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (current) {
+      const ext = extractMetadataFromContent(current.title, current.content);
+      const author = ext.authorNickname || current.author_name || current.author_nickname || '익명의 삼진인';
+      const cat = ext.category || current.category || 'OTHER';
+      const tags = ext.tags || (Array.isArray(current.tags) ? current.tags : ['#마산삼진고', '#건의사항']);
+      const isSecret = Boolean(ext.isSecret || current.is_secret);
+      const pin = ext.pin || current.secret_pin || '';
+      const rawClean = stripMetadataMarkers(current.content);
+
+      const secretTag = isSecret ? `[SECRET_POST:${pin}]` : '';
+      const categoryTag = `[CATEGORY:${cat}]`;
+      const authorTag = `[AUTHOR:${author}]`;
+      const tagsTag = tags.length > 0 ? `[TAGS:${tags.join(',')}]` : '';
+      const commentsTag = ext.comments && ext.comments.length > 0 ? `[COMMENTS:${encodeURIComponent(JSON.stringify(ext.comments))}]` : '';
+      const officialRespTag = adminReply ? `[OFFICIAL_RESPONSE:${encodeURIComponent(JSON.stringify({
+        authorName: '학생회장',
+        department: '제53대 삼진고 학생회',
+        content: adminReply,
+        updatedAt: new Date().toISOString(),
+        status,
+      }))}]` : '';
+
+      const newContent = `${secretTag}${categoryTag}${authorTag}${tagsTag}${commentsTag}${officialRespTag} ${rawClean}`.trim();
+
+      const { data, error } = await supabase
+        .from('suggestions')
+        .update({ status: mapStatusToDB(status), content: newContent })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (!error && data) {
+        return mapRowToSuggestion(data);
+      }
+    }
+  } catch {}
+
+  // Variant 3: Just status update
   const { data, error } = await supabase
     .from('suggestions')
-    .update(updatePayload)
+    .update({ status: mapStatusToDB(status) })
     .eq('id', id)
     .select()
     .single();
