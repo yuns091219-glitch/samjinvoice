@@ -51,7 +51,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
 
   const addTagString = (raw: string) => {
     if (!raw) return;
-    // Split by commas, spaces, or # if user pastes multiple
+    // Split by commas, spaces, newlines, or hashtags
     const tokens = raw
       .split(/[\s,]+/)
       .map((t) => t.trim())
@@ -61,7 +61,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
       let next = [...prev];
       for (let t of tokens) {
         // Strip duplicate leading hashes and clean
-        t = t.replace(/^#+/, '');
+        t = t.replace(/^#+/, '').trim();
         if (!t) continue;
         const formatted = `#${t}`;
         if (!next.includes(formatted)) {
@@ -97,7 +97,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
       return;
     }
 
-    // Auto extract any remaining tag input or hashtags written in content
+    // Auto extract any remaining tag input left in the input box
     let finalTags = [...tags];
     if (tagInput.trim()) {
       const pending = tagInput
@@ -130,7 +130,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
       )
     );
 
-    const submittedTags = uniqueFinalTags.length > 0 ? uniqueFinalTags : ['#마산삼진고', '#건의사항'];
+    const submittedTags = uniqueFinalTags.length > 0 ? uniqueFinalTags : ['#마산삼진고', '#학생건의'];
 
     onSubmit({
       category,
@@ -282,7 +282,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
                   value={tagInput}
                   onChange={(e) => {
                     const val = e.target.value;
-                    // If user enters comma or newline, auto create tag
+                    // If user enters comma, newline, or multiple tokens, auto create tag
                     if (val.includes(',') || val.includes('\n')) {
                       addTagString(val);
                       setTagInput('');
@@ -292,6 +292,9 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
                   }}
                   onKeyDown={(e) => {
                     if (e.key === ',' || e.key === 'Tab') {
+                      e.preventDefault();
+                      handleAddTag();
+                    } else if (e.key === ' ' && tagInput.trim().length > 0) {
                       e.preventDefault();
                       handleAddTag();
                     } else if (e.key === 'Enter') {
@@ -305,7 +308,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
                       handleAddTag();
                     }
                   }}
-                  placeholder="태그 입력 후 엔터 (예: 급식, 시설, 야자실, 건의)"
+                  placeholder="태그 입력 후 엔터 또는 스페이스 (예: 급식, 시설, 야자실)"
                   className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-[#E6E2D3] text-xs focus:outline-none focus:ring-2 focus:ring-[#5F7161] text-[#2D2926] bg-white font-medium"
                 />
               </div>

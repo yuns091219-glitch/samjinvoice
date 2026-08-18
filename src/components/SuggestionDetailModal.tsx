@@ -53,6 +53,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   // AI draft state
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiDraft, setAiDraft] = useState<any>(null);
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
   const activeSuggestion = unlockedSuggestion || suggestion;
 
@@ -97,13 +98,9 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     if (unlockedSuggestion && String(unlockedSuggestion.id) === String(suggestion.id)) {
       setUnlockedSuggestion((prev) => {
         if (!prev) return suggestion;
-        const prevComments = prev.comments || [];
-        const nextComments = suggestion.comments || [];
-        const mergedComments = deduplicateComments([...prevComments, ...nextComments]);
-
         return {
           ...prev,
-          comments: mergedComments,
+          comments: deduplicateComments(suggestion.comments || prev.comments || []),
           upvotes: suggestion.upvotes,
           status: suggestion.status,
           officialResponse: suggestion.officialResponse,
@@ -162,16 +159,23 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     setIsVerifying(false);
   };
 
-  const handleCommentSubmit = (e: React.FormEvent) => {
+  const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!commentContent.trim()) return;
+    if (!commentContent.trim() || isSubmittingComment) return;
     const contentToSubmit = commentContent.trim();
     const nickToSubmit = commentNickname;
 
-    onAddComment(activeSuggestion.id, nickToSubmit, contentToSubmit, isAdmin);
-
+    setIsSubmittingComment(true);
     setCommentContent('');
     setCommentNickname(getRandomAnonymousNickname());
+
+    try {
+      await onAddComment(activeSuggestion.id, nickToSubmit, contentToSubmit, isAdmin);
+    } finally {
+      setTimeout(() => {
+        setIsSubmittingComment(false);
+      }, 500);
+    }
   };
 
   const handleAdminStatusSave = () => {

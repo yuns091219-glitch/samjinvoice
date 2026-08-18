@@ -198,17 +198,8 @@ export default function App() {
           const remoteComments = Array.isArray(remoteItem.comments) ? remoteItem.comments : [];
           const cachedComments = Array.isArray(cachedItem.comments) ? cachedItem.comments : [];
 
-          // Merge comments uniquely by ID so locally added comments are never lost
-          const commentMap = new Map<string, any>();
-          cachedComments.forEach((c) => {
-            if (c && c.id) commentMap.set(c.id, c);
-          });
-          remoteComments.forEach((c) => {
-            if (c && c.id) commentMap.set(c.id, c);
-          });
-          const mergedComments = Array.from(commentMap.values()).sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
+          // Merge comments uniquely and safely using deduplicateComments
+          const mergedComments = deduplicateComments([...cachedComments, ...remoteComments]);
 
           // For non-admin user on author's browser: preserve author's own unmasked content
           const isOwnerLocalPost = !isAdmin && isMyPost(cachedItem) && cachedItem.isSecret && cachedItem.content && !cachedItem.content.startsWith('🔒 비밀글입니다');
@@ -231,7 +222,7 @@ export default function App() {
             )
           );
           if (resolvedTags.length === 0) {
-            resolvedTags = ['#마산삼진고', '#건의사항'];
+            resolvedTags = ['#마산삼진고', '#학생건의'];
           }
 
           return {
@@ -264,12 +255,7 @@ export default function App() {
           if (!updated) return prev;
           const prevComments = prev.comments || [];
           const nextComments = updated.comments || [];
-          const map = new Map<string, any>();
-          prevComments.forEach((c) => c && c.id && map.set(c.id, c));
-          nextComments.forEach((c) => c && c.id && map.set(c.id, c));
-          const mergedComments = Array.from(map.values()).sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
+          const mergedComments = deduplicateComments([...prevComments, ...nextComments]);
 
           return {
             ...updated,
@@ -343,29 +329,6 @@ export default function App() {
   // Derived filtered & sorted list of suggestions
   const filteredSuggestions = useMemo(() => {
     return suggestions
-      .filter((s) => {
-        if (selectedCategory !== 'ALL') {
-          const catNorm = normalizeCategory(s.category);
-          const selNorm = normalizeCategory(selectedCategory);
-          if (catNorm !== selNorm) {
-            return false;
-          }
-        }
-        if (selectedStatus !== 'ALL' && s.status !== selectedStatus) {
-          return false;
-        }
-        if (searchQuery.trim()) {
-          const q = searchQuery.trim().toLowerCase();
-          const titleMatch = s.title?.toLowerCase().includes(q);
-          const contentMatch = s.content?.toLowerCase().includes(q);
-          const tagMatch = s.tags?.some((t) => t.toLowerCase().includes(q));
-          const authorMatch = s.authorNickname?.toLowerCase().includes(q);
-          if (!titleMatch && !contentMatch && !tagMatch && !authorMatch) {
-            return false;
-          }
-        }
-        return true;
-      })
       .map((s) => {
         const meta = extractMetadataFromContent(s.title, s.content);
         const isSecretPost = isSecretSuggestion(s) || meta.isSecret;
@@ -392,7 +355,7 @@ export default function App() {
           )
         );
         if (finalTags.length === 0) {
-          finalTags = ['#마산삼진고', '#건의사항'];
+          finalTags = ['#마산삼진고', '#학생건의'];
         }
         if (isSecretPost && !finalTags.includes('#비밀글')) {
           finalTags.push('#비밀글');
@@ -421,6 +384,33 @@ export default function App() {
           content: cleanContent,
           tags: finalTags,
         };
+      })
+      .filter((s) => {
+        if (selectedCategory !== 'ALL') {
+          const catNorm = normalizeCategory(s.category);
+          const selNorm = normalizeCategory(selectedCategory);
+          if (catNorm !== selNorm) {
+            return false;
+          }
+        }
+        if (selectedStatus !== 'ALL' && s.status !== selectedStatus) {
+          return false;
+        }
+        if (searchQuery.trim()) {
+          const q = searchQuery.trim().toLowerCase();
+          const cleanQ = q.startsWith('#') ? q.slice(1) : q;
+          const titleMatch = s.title?.toLowerCase().includes(q) || s.title?.toLowerCase().includes(cleanQ);
+          const contentMatch = s.content?.toLowerCase().includes(q) || s.content?.toLowerCase().includes(cleanQ);
+          const tagMatch = s.tags?.some((t) => {
+            const cleanT = t.toLowerCase().replace(/^#+/, '');
+            return t.toLowerCase().includes(q) || cleanT.includes(cleanQ);
+          });
+          const authorMatch = s.authorNickname?.toLowerCase().includes(q);
+          if (!titleMatch && !contentMatch && !tagMatch && !authorMatch) {
+            return false;
+          }
+        }
+        return true;
       })
       .sort((a, b) => {
         if (sortBy === 'upvotes') {
@@ -1167,6 +1157,7 @@ export default function App() {
                   suggestion={suggestion}
                   onSelectCard={(s) => setSelectedSuggestion(s)}
                   onUpvote={handleUpvote}
+                  onTagClick={(tag) => setSearchQuery(tag)}
                   isUpvoted={upvotedIds.includes(suggestion.id)}
                   isAdmin={isAdmin}
                 />

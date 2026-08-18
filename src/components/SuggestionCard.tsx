@@ -6,6 +6,7 @@ interface SuggestionCardProps {
   suggestion: Suggestion;
   onSelectCard: (suggestion: Suggestion) => void;
   onUpvote: (id: string, e: React.MouseEvent) => void;
+  onTagClick?: (tag: string, e: React.MouseEvent) => void;
   isUpvoted?: boolean;
   isAdmin?: boolean;
 }
@@ -51,6 +52,7 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
   suggestion,
   onSelectCard,
   onUpvote,
+  onTagClick,
   isUpvoted = false,
   isAdmin = false,
 }) => {
@@ -69,7 +71,7 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
 
   let displayTags = Array.isArray(suggestion.tags) && suggestion.tags.length > 0
     ? [...suggestion.tags]
-    : ['#마산삼진고', '#건의사항'];
+    : ['#마산삼진고', '#학생건의'];
   if (isSecret && !displayTags.includes('#비밀글')) {
     displayTags.push('#비밀글');
   }
@@ -129,7 +131,18 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
         {displayTags && displayTags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-4">
             {displayTags.map((tag, i) => (
-              <span key={i} className="text-[11px] font-bold text-[#5F7161] bg-[#F4F1EA] px-2.5 py-0.5 rounded-lg border border-[#E6E2D3]">
+              <span
+                key={i}
+                onClick={(e) => {
+                  if (onTagClick) {
+                    e.stopPropagation();
+                    onTagClick(tag, e);
+                  }
+                }}
+                className={`text-[11px] font-bold text-[#5F7161] bg-[#F4F1EA] px-2.5 py-0.5 rounded-lg border border-[#E6E2D3] transition-colors ${
+                  onTagClick ? 'hover:bg-[#5F7161] hover:text-white cursor-pointer' : ''
+                }`}
+              >
                 {tag.startsWith('#') ? tag : `#${tag}`}
               </span>
             ))}

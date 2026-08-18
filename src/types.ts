@@ -175,14 +175,14 @@ export const deduplicateComments = (comments?: (Comment | null | undefined)[]): 
     const existingIndex = result.findIndex((existing) => {
       if (existing.id && c.id && existing.id === c.id) return true;
       const sameContent = existing.content.trim() === cleanContent;
-      const sameAuthor = (existing.authorNickname || '').trim() === cleanNick;
+      const sameAuthor = (existing.authorNickname || '익명의 삼진인').trim() === cleanNick;
       const sameOfficial = Boolean(existing.isOfficial) === Boolean(c.isOfficial);
 
       if (sameContent && sameAuthor && sameOfficial) {
-        // If created within 60 seconds of each other, consider them the same comment
+        // If created within 5 minutes (300,000ms) of each other or either timestamp is missing
         const t1 = new Date(existing.createdAt).getTime();
         const t2 = new Date(c.createdAt).getTime();
-        if (isNaN(t1) || isNaN(t2) || Math.abs(t1 - t2) < 60000) {
+        if (isNaN(t1) || isNaN(t2) || Math.abs(t1 - t2) < 300000) {
           return true;
         }
       }
@@ -191,9 +191,12 @@ export const deduplicateComments = (comments?: (Comment | null | undefined)[]): 
 
     if (existingIndex !== -1) {
       const existing = result[existingIndex];
-      // If existing is temporary (starts with 'comment-') and new one is server assigned (e.g. 'c-'), prefer server version
-      if (existing.id?.startsWith('comment-') && !c.id?.startsWith('comment-')) {
-        seenIds.delete(existing.id);
+      // If existing is temporary (starts with 'comment-' or 'temp-') and new one is server assigned (e.g. 'c-' or uuid), prefer server version
+      const isExistingTemp = !existing.id || existing.id.startsWith('comment-') || existing.id.startsWith('temp-');
+      const isNewTemp = !c.id || c.id.startsWith('comment-') || c.id.startsWith('temp-');
+
+      if (isExistingTemp && !isNewTemp) {
+        if (existing.id) seenIds.delete(existing.id);
         result[existingIndex] = c;
         if (c.id) seenIds.add(c.id);
       }
