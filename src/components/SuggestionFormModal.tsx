@@ -177,11 +177,11 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#2D2926]/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-[32px] max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-[#E6E2D3] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#2D2926]/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-x-hidden">
+      <div className="bg-white rounded-2xl sm:rounded-[32px] max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-[#E6E2D3] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         {/* Header */}
-        <div className="p-5 border-b border-[#E6E2D3] flex items-center justify-between bg-[#5F7161] text-white">
+        <div className="p-4 sm:p-5 border-b border-[#E6E2D3] flex items-center justify-between bg-[#5F7161] text-white">
           <div className="flex items-center space-x-2">
             <MessageSquarePlus className="w-5 h-5 text-emerald-200" />
             <h2 className="font-bold text-lg">마산삼진고 익명 건의 작성</h2>

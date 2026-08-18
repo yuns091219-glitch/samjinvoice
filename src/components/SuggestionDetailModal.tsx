@@ -219,20 +219,20 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   const statusInfo = STATUS_CONFIG[activeSuggestion.status];
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-x-hidden">
+      <div className="bg-white rounded-2xl sm:rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         {/* Modal Header */}
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
           <div className="flex items-center space-x-2">
-            <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-3 py-1 rounded-lg">
+            <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-2.5 sm:px-3 py-1 rounded-lg">
               {CATEGORY_LABELS[activeSuggestion.category]}
             </span>
-            <span className={`text-xs font-semibold px-3 py-1 rounded-full border ${statusInfo.badgeClass}`}>
+            <span className={`text-xs font-semibold px-2.5 sm:px-3 py-1 rounded-full border ${statusInfo.badgeClass}`}>
               {statusInfo.label}
             </span>
             {activeSuggestion.isSecret && (
-              <span className="text-xs font-semibold bg-rose-100 text-rose-800 px-2.5 py-1 rounded-lg flex items-center gap-1">
+              <span className="text-xs font-semibold bg-rose-100 text-rose-800 px-2 sm:px-2.5 py-1 rounded-lg flex items-center gap-1">
                 <Lock className="w-3 h-3" /> 비밀글
               </span>
             )}
@@ -248,22 +248,22 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden space-y-6 flex-1 max-w-full">
           
           {/* Secret Post Password Verification Box */}
           {(isSecretSuggestion(activeSuggestion) || isSecretSuggestion(suggestion)) && !isUnlocked ? (
-            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 text-center space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
-                <KeyRound className="w-6 h-6" />
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-8 text-center space-y-4 max-w-full overflow-hidden">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
+                <KeyRound className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 text-lg">비밀 건의글입니다</h3>
+                <h3 className="font-bold text-slate-900 text-base sm:text-lg">비밀 건의글입니다</h3>
                 <p className="text-slate-600 text-xs mt-1">
-                  작성 시 설정한 4자리 비밀번호(PIN)를 입력하세요. (관리자는 마스터 비밀번호로 즉시 열람 가능)
+                  작성 시 설정한 4자리 비밀번호(PIN)를 입력하세요.
                 </p>
               </div>
 
-              <div className="max-w-xs mx-auto flex items-center gap-2">
+              <div className="max-w-xs sm:max-w-sm mx-auto flex flex-row items-stretch justify-center gap-2 w-full">
                 <input
                   id="input-secret-pin"
                   type="password"
@@ -276,13 +276,13 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
                     }
                   }}
                   placeholder="PIN 4자리"
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-rose-300 text-center font-bold text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-rose-400 bg-white text-slate-900"
+                  className="w-full min-w-0 px-3 py-2.5 sm:px-4 sm:py-3 rounded-xl sm:rounded-2xl border-2 border-rose-300 text-center font-bold text-base sm:text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white text-slate-900 shadow-xs"
                 />
                 <button
                   id="btn-verify-pin"
                   onClick={handleVerifyPin}
                   disabled={isVerifying}
-                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-2.5 rounded-xl text-sm transition-colors disabled:opacity-50"
+                  className="bg-rose-600 hover:bg-rose-700 active:scale-98 text-white font-bold px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl text-xs sm:text-sm transition-all shadow-xs disabled:opacity-50 shrink-0 whitespace-nowrap inline-flex items-center justify-center min-w-[60px] sm:min-w-[72px]"
                 >
                   {isVerifying ? '확인 중...' : '확인'}
                 </button>
