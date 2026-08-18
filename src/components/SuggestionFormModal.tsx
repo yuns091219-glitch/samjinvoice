@@ -132,6 +132,29 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
 
     const submittedTags = uniqueFinalTags.length > 0 ? uniqueFinalTags : ['#마산삼진고', '#학생건의'];
 
+    // Netlify Forms AJAX background submission for SPA
+    try {
+      const netlifyFormData = new URLSearchParams();
+      netlifyFormData.append('form-name', 'samjin-voice');
+      netlifyFormData.append('category', category);
+      netlifyFormData.append('authorNickname', authorNickname.trim() || '익명의 삼진인');
+      netlifyFormData.append('title', title.trim());
+      netlifyFormData.append('content', content.trim());
+      netlifyFormData.append('tags', submittedTags.join(','));
+      netlifyFormData.append('isSecret', isSecret ? 'true' : 'false');
+      netlifyFormData.append('secretPin', isSecret ? secretPin.trim() : '');
+
+      fetch('/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: netlifyFormData.toString(),
+      }).catch((err) => {
+        console.warn('Netlify form submission note:', err);
+      });
+    } catch (e) {
+      console.warn('Netlify form encode error:', e);
+    }
+
     onSubmit({
       category,
       title: title.trim(),
@@ -172,8 +195,18 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
         </div>
 
         {/* Scrollable Form */}
-        <form name="samjin-voice" data-netlify="true" onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 flex-1">
+        <form
+          name="samjin-voice"
+          method="POST"
+          data-netlify="true"
+          data-netlify-honeypot="bot-field"
+          onSubmit={handleSubmit}
+          className="p-6 overflow-y-auto space-y-5 flex-1"
+        >
           <input type="hidden" name="form-name" value="samjin-voice" />
+          <input type="hidden" name="bot-field" />
+          <input type="hidden" name="category" value={category} />
+          <input type="hidden" name="tags" value={tags.join(',')} />
           
           {/* Category Selector */}
           <div>
@@ -219,6 +252,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
             <div className="relative">
               <input
                 type="text"
+                name="authorNickname"
                 value={authorNickname}
                 readOnly
                 tabIndex={-1}
@@ -240,6 +274,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
             </label>
             <input
               type="text"
+              name="title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="구체적이고 정중한 제목을 입력해 주세요 (예: 체육관 에어컨 필터 청소 건의)"
@@ -254,6 +289,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
             </label>
             <textarea
               rows={5}
+              name="content"
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="학교 환경, 생활 규칙, 급식, 행사 등 더 나은 삼진고를 위한 건설적인 의견을 자유롭게 적어주세요."
@@ -372,6 +408,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
               <label className="flex items-center space-x-2 text-xs font-bold text-[#2D2926] cursor-pointer">
                 <input
                   type="checkbox"
+                  name="isSecret"
                   checked={isSecret}
                   onChange={(e) => setIsSecret(e.target.checked)}
                   className="w-4 h-4 text-[#5F7161] rounded-md focus:ring-[#5F7161]"
@@ -392,6 +429,7 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
                 </label>
                 <input
                   type="password"
+                  name="secretPin"
                   maxLength={4}
                   value={secretPin}
                   onChange={(e) => setSecretPin(e.target.value)}

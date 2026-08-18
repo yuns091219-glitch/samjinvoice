@@ -8,15 +8,16 @@
   </head>
   <body>
     <!-- Netlify Forms static detection for SPA -->
-    <form name="samjin-voice" data-netlify="true" netlify-honeypot="bot-field" hidden>
+    <form name="samjin-voice" method="POST" data-netlify="true" netlify-honeypot="bot-field" hidden>
       <input type="hidden" name="form-name" value="samjin-voice" />
-      <input type="text" name="title" />
+      <input type="text" name="bot-field" />
       <input type="text" name="category" />
       <input type="text" name="authorNickname" />
+      <input type="text" name="title" />
       <textarea name="content"></textarea>
       <input type="text" name="tags" />
-      <input type="checkbox" name="isSecret" />
-      <input type="password" name="secretPin" />
+      <input type="text" name="isSecret" />
+      <input type="text" name="secretPin" />
     </form>
 
     <div id="root"></div>
