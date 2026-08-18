@@ -450,10 +450,22 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
             </p>
           )}
 
-          {/* Cultural respect note */}
-          <div className="text-[11px] text-[#5F7161] bg-[#F4F1EA] p-3 rounded-2xl border border-[#E6E2D3] flex items-center space-x-2 font-medium">
-            <Heart className="w-4 h-4 text-[#5F7161] shrink-0" />
-            <span>비속어 없는 정중하고 구체적인 언어 표현은 건의 수용률을 높입니다.</span>
+          {/* Cultural respect note & warning */}
+          <div className="text-xs bg-[#F4F1EA] p-4 rounded-2xl border border-[#E6E2D3] space-y-1.5 font-medium text-[#2D2926]">
+            <div className="flex items-start space-x-2.5">
+              <Heart className="w-4 h-4 text-[#5F7161] shrink-0 mt-0.5" />
+              <div className="space-y-1 leading-relaxed">
+                <p className="font-bold text-[#2D2926]">
+                  본 건의함의 최우선 목적은 여러분의 소중한 '건의'를 받는 것입니다.
+                </p>
+                <p className="text-[#6B635B] text-[11px]">
+                  학교생활 중 도움이 필요하거나, 학교에 꼭 요청하고 싶은 점이 있다면 망설이지 말고 편하게 적어주세요.
+                </p>
+                <p className="text-rose-600 font-bold text-[11px] bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200 inline-block mt-0.5">
+                  ※ 주의: 익명이라고 근거 없는 비난이나 욕설을 적을 시, 끝까지 추적해서 찾아갑니다. (선처 없음)
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Submit */}

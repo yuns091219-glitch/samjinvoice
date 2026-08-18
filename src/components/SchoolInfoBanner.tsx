@@ -17,7 +17,7 @@ export const SchoolInfoBanner: React.FC<SchoolInfoBannerProps> = ({
           <div className="flex items-center space-x-2">
             <div className="inline-flex items-center space-x-1.5 bg-[#E6E2D3] text-[#5F7161] text-[10px] sm:text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
               <Shield className="w-3.5 h-3.5 shrink-0" />
-              <span>100% 철저한 익명성 보장</span>
+              <span>마산삼진고 학생 소통 건의함</span>
             </div>
           </div>
 
@@ -30,10 +30,17 @@ export const SchoolInfoBanner: React.FC<SchoolInfoBannerProps> = ({
             </h2>
           </div>
 
-          <p className="text-xs sm:text-sm text-[#8C8479] leading-relaxed max-w-3xl">
-            교내 시설, 학습 환경, 학생회 행사 등 개선이 필요한 의견을 자유롭게 건의해주세요. 
-            제출된 내용은 학생회와 학교 관리자가 직접 검토하여 반영합니다.
-          </p>
+          <div className="space-y-1.5 text-xs sm:text-sm text-[#4A443F] leading-relaxed max-w-3xl">
+            <p className="font-semibold text-[#2D2926]">
+              본 건의함의 최우선 목적은 여러분의 소중한 <span className="text-[#5F7161] font-extrabold">'건의'</span>를 받는 것입니다.
+            </p>
+            <p className="text-[#6B635B]">
+              학교생활 중 도움이 필요하거나, 학교에 꼭 요청하고 싶은 점이 있다면 망설이지 말고 편하게 적어주세요.
+            </p>
+            <p className="text-rose-600 font-bold bg-rose-50/90 border border-rose-200 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs inline-block mt-1">
+              ※ 주의: 익명이라고 근거 없는 비난이나 욕설을 적을 시, 끝까지 추적해서 찾아갑니다. (선처 없음)
+            </p>
+          </div>
         </div>
 
         <div className="mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-[#E6E2D3] flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-10">
