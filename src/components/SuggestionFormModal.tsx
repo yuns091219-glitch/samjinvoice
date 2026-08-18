@@ -172,7 +172,8 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
         </div>
 
         {/* Scrollable Form */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 flex-1">
+        <form name="samjin-voice" data-netlify="true" onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 flex-1">
+          <input type="hidden" name="form-name" value="samjin-voice" />
           
           {/* Category Selector */}
           <div>
