@@ -22,8 +22,8 @@ export const SchoolInfoBanner: React.FC<SchoolInfoBannerProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white border border-[#E6E2D3] rounded-2xl p-1.5 shrink-0 shadow-xs">
-              <img src="/logo.svg" alt="마산삼진고 교표" className="w-full h-full object-contain" />
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#F4EEDC] border border-[#E6E2D3] rounded-2xl p-0.5 shrink-0 shadow-xs overflow-hidden">
+              <img src="/logo.svg" alt="삼진보이스 로고" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
             </div>
             <h2 className="text-lg sm:text-2xl font-bold text-[#2D2926] leading-tight">
               학생들의 목소리로 만들어가는 더 나은 마산삼진고

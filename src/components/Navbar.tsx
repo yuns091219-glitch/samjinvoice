@@ -25,8 +25,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Logo & School Title */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5 sm:space-x-3">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white border border-[#E6E2D3] flex items-center justify-center p-1 shadow-xs shrink-0 overflow-hidden">
-                <img src="/favicon.svg" alt="마산삼진고등학교 교표" className="w-full h-full object-contain" />
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-[#F4EEDC] border border-[#E6E2D3] flex items-center justify-center p-0.5 shadow-xs shrink-0 overflow-hidden">
+                <img src="/logo.svg" alt="삼진보이스 로고" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
               </div>
               <div>
                 <div className="flex items-center space-x-1.5 sm:space-x-2">
