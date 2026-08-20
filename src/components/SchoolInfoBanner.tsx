@@ -38,7 +38,7 @@ export const SchoolInfoBanner: React.FC<SchoolInfoBannerProps> = ({
               학교생활 중 도움이 필요하거나, 학교에 꼭 요청하고 싶은 점이 있다면 망설이지 말고 편하게 적어주세요.
             </p>
             <p className="text-rose-600 font-bold bg-rose-50/90 border border-rose-200 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs inline-block mt-1">
-              ※ 주의: 익명이라고 근거 없는 비난이나 욕설을 적을 시, 끝까지 추적해서 찾아갑니다. (선처 없음)
+              ※ 주의: 익명이라고 근거 없는 비난이나 욕설을 적을 시, 끝까지 추적해서 찾아갑니다.
             </p>
           </div>
         </div>

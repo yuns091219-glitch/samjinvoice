@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Suggestion, AdminStats, Status, normalizeCategory } from '../types';
 import { CATEGORY_LABELS } from './SuggestionCard';
-import { ShieldCheck, Award, CheckCircle2, Clock, FileSearch, AlertCircle, X, BarChart3, TrendingUp, KeyRound, Bot } from 'lucide-react';
+import { ShieldCheck, Award, CheckCircle2, Clock, FileSearch, AlertCircle, X, BarChart3, TrendingUp, KeyRound } from 'lucide-react';
 
 interface AdminDashboardProps {
   isOpen: boolean;

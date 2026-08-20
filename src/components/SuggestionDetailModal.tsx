@@ -3,7 +3,7 @@ import { Suggestion, Status, Comment, isSecretSuggestion, isPostUnlocked, markPo
 import { STATUS_CONFIG, CATEGORY_LABELS } from './SuggestionCard';
 import { getRandomAnonymousNickname } from '../data/initialData';
 import { verifySuggestionPin } from '../lib/supabase';
-import { X, ThumbsUp, MessageSquare, Lock, Send, ShieldCheck, CheckCircle2, AlertCircle, Trash2, KeyRound, Bot } from 'lucide-react';
+import { X, ThumbsUp, MessageSquare, Lock, Send, ShieldCheck, CheckCircle2, AlertCircle, Trash2, KeyRound } from 'lucide-react';
 
 interface SuggestionDetailModalProps {
   suggestion: Suggestion | null;
@@ -49,10 +49,6 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   const [responseDepartment, setResponseDepartment] = useState('제53대 삼진고 학생회');
   const [responseAuthor, setResponseAuthor] = useState('학생회장 김삼진');
   const [responseContent, setResponseContent] = useState(suggestion.officialResponse?.content || '');
-
-  // AI draft state
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiDraft, setAiDraft] = useState<any>(null);
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
   const activeSuggestion = unlockedSuggestion || suggestion;
@@ -180,33 +176,6 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
 
   const handleAdminStatusSave = () => {
     onUpdateStatus(activeSuggestion.id, newStatus, responseContent);
-  };
-
-  const handleGenerateAiResponse = async () => {
-    setIsAiLoading(true);
-    try {
-      const res = await fetch('/api/gemini/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: activeSuggestion.title,
-          content: activeSuggestion.content,
-          category: activeSuggestion.category,
-        }),
-      });
-      const data = await res.json();
-      setAiDraft(data);
-      if (data.draftResponse) {
-        setResponseContent(data.draftResponse);
-      }
-      if (data.suggestedStatus) {
-        setNewStatus(data.suggestedStatus);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsAiLoading(false);
-    }
   };
 
   const handleDelete = () => {
@@ -368,21 +337,9 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
               {/* Admin / Student Council Management Box */}
               {isAdmin && (
                 <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 border border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <ShieldCheck className="w-5 h-5 text-amber-400" />
-                      <h3 className="font-bold text-sm text-amber-300">학생회/교사 관리자 답변 작성 및 상태 변경</h3>
-                    </div>
-
-                    <button
-                      id="btn-gemini-ai-draft"
-                      onClick={handleGenerateAiResponse}
-                      disabled={isAiLoading}
-                      className="inline-flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all disabled:opacity-50"
-                    >
-                      <Bot className="w-4 h-4 text-indigo-200" />
-                      <span>{isAiLoading ? 'AI 분석 중...' : 'Gemini AI 답변 초안 생성'}</span>
-                    </button>
+                  <div className="flex items-center space-x-2">
+                    <ShieldCheck className="w-5 h-5 text-amber-400" />
+                    <h3 className="font-bold text-sm text-amber-300">학생회/교사 관리자 답변 작성 및 상태 변경</h3>
                   </div>
 
                   {/* Status Radio / Select */}
