@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+    <link rel="shortcut icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+    <link rel="apple-touch-icon" href="/logo.svg?v=3" />
+    <title>삼진보이스 | 마산삼진고등학교 익명 소통 플랫폼</title>
+  </head>
+  <body>
+    <!-- Netlify Forms static detection for SPA -->
+    <form name="samjin-voice" method="POST" data-netlify="true" netlify-honeypot="bot-field" hidden>
+      <input type="hidden" name="form-name" value="samjin-voice" />
+      <input type="text" name="bot-field" />
+      <input type="text" name="category" />
+      <input type="text" name="authorNickname" />
+      <input type="text" name="title" />
+      <textarea name="content"></textarea>
+      <input type="text" name="tags" />
+      <input type="text" name="isSecret" />
+      <input type="text" name="secretPin" />
+    </form>
+
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

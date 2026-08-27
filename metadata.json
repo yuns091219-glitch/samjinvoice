@@ -1,0 +1,6 @@
+{
+  "name": "삼진보이스",
+  "description": "마산삼진고등학교 학생들이 익명으로 학교 생활, 시설, 급식, 행사 등에 대해 의견을 자유롭게 제시하고 학생회 및 학교와 소통하는 서비스입니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

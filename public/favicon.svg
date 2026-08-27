@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <defs>
+    <linearGradient id="favBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDFBF7" />
+      <stop offset="100%" stop-color="#EBE5D6" />
+    </linearGradient>
+
+    <linearGradient id="favHex" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A5C4A1" />
+      <stop offset="100%" stop-color="#6B9169" />
+    </linearGradient>
+
+    <linearGradient id="favMic" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#34543C" />
+      <stop offset="100%" stop-color="#243D2A" />
+    </linearGradient>
+
+    <clipPath id="favHexClip">
+      <polygon points="50,14 84,34 84,66 50,86 16,66 16,34" />
+    </clipPath>
+  </defs>
+
+  <!-- Background Squircle for high visibility in dark & light tabs -->
+  <rect width="100" height="100" rx="24" fill="url(#favBg)" stroke="#D4CCBA" stroke-width="1.5" />
+
+  <!-- Left Audio Sound Waves -->
+  <g fill="#4F7155">
+    <circle cx="6" cy="50" r="1.2" />
+    <rect x="8.5" y="46" width="1.8" height="8" rx="0.9" />
+    <rect x="11.5" y="42" width="1.8" height="16" rx="0.9" />
+  </g>
+
+  <!-- Right Audio Sound Waves -->
+  <g fill="#4F7155">
+    <rect x="86.5" y="42" width="1.8" height="16" rx="0.9" />
+    <rect x="89.5" y="46" width="1.8" height="8" rx="0.9" />
+    <circle cx="94" cy="50" r="1.2" />
+  </g>
+
+  <!-- Center Hexagon Emblem -->
+  <polygon points="50,14 84,34 84,66 50,86 16,66 16,34" 
+           fill="url(#favHex)" 
+           stroke="#3A5C41" 
+           stroke-width="2.5" 
+           stroke-linejoin="round" />
+
+  <!-- Inner White Highlight Line -->
+  <polygon points="50,18 80,36 80,64 50,82 20,64 20,36" 
+           fill="none" 
+           stroke="#FFFFFF" 
+           stroke-width="1.5" 
+           stroke-linejoin="round" 
+           opacity="0.9" />
+
+  <!-- Hexagon Interior Details -->
+  <g clip-path="url(#favHexClip)">
+    <!-- Gloss Reflection -->
+    <path d="M 15 15 L 85 15 L 85 45 L 15 75 Z" fill="#FFFFFF" opacity="0.18" />
+
+    <!-- Microphone Capsule & Base -->
+    <rect x="44.5" y="42" width="11" height="15" rx="5.5" fill="url(#favMic)" />
+    
+    <!-- Microphone Stand Arc -->
+    <path d="M 41 52 C 41 61, 59 61, 59 52" 
+          fill="none" 
+          stroke="#203926" 
+          stroke-width="2.2" 
+          stroke-linecap="round" />
+    
+    <path d="M 50 58 L 50 69 M 46 69 L 54 69" 
+          fill="none" 
+          stroke="#203926" 
+          stroke-width="2" 
+          stroke-linecap="round" />
+  </g>
+
+  <!-- High School Symbol '高' and Sound Waves '三' in High Contrast Dark Green -->
+  <g fill="#1F3825">
+    <!-- Left 3 voice bars -->
+    <rect x="33" y="34" width="7" height="1.8" rx="0.9" />
+    <rect x="33" y="38" width="7" height="1.8" rx="0.9" />
+    <rect x="33" y="42" width="7" height="1.8" rx="0.9" />
+
+    <!-- Top dot/roof of '高' -->
+    <rect x="48.5" y="31.5" width="3" height="2" rx="0.5" />
+    <rect x="43" y="34" width="14" height="1.8" rx="0.6" />
+    
+    <!-- Middle '口' -->
+    <rect x="45" y="37" width="10" height="4.5" rx="0.8" />
+    <rect x="46.8" y="38.4" width="6.4" height="1.7" fill="#8BB289" />
+
+    <!-- Lower '冂' frame -->
+    <path d="M 43.5 42.5 L 56.5 42.5 L 56.5 49 L 54.5 49 L 54.5 44.5 L 45.5 44.5 L 45.5 49 L 43.5 49 Z" />
+    <polygon points="50,44.5 47,48.5 53,48.5" fill="#1F3825" />
+
+    <!-- Right 3 voice bars -->
+    <rect x="60" y="34" width="7" height="1.8" rx="0.9" />
+    <rect x="60" y="38" width="7" height="1.8" rx="0.9" />
+    <rect x="60" y="42" width="7" height="1.8" rx="0.9" />
+  </g>
+</svg>
