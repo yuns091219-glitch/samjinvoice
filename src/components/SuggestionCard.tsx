@@ -3,7 +3,7 @@ import { Suggestion, Status, Category, normalizeCategory, isSecretSuggestion, is
 import { maskProfanity } from '../lib/profanityFilter';
 import { 
   ThumbsUp, 
-  MessageSquare, 
+  ThumbsDown, 
   Lock, 
   CheckCircle2, 
   Clock, 
@@ -24,10 +24,12 @@ interface SuggestionCardProps {
   suggestion: Suggestion;
   onSelectCard: (suggestion: Suggestion) => void;
   onUpvote: (id: string, e: React.MouseEvent) => void;
+  onDownvote?: (id: string, e: React.MouseEvent) => void;
   onTagClick?: (tag: string, e: React.MouseEvent) => void;
   onDeleteSuggestion?: (id: string) => void;
   onApproveSuggestion?: (id: string, e: React.MouseEvent) => void;
   isUpvoted?: boolean;
+  isDownvoted?: boolean;
   isAdmin?: boolean;
   isMyPost?: boolean;
 }
@@ -92,10 +94,12 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
   suggestion,
   onSelectCard,
   onUpvote,
+  onDownvote,
   onTagClick,
   onDeleteSuggestion,
   onApproveSuggestion,
   isUpvoted = false,
+  isDownvoted = false,
   isAdmin = false,
   isMyPost = false,
 }) => {
@@ -290,28 +294,46 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
           </span>
         </div>
 
-        {/* Upvotes & Comments */}
-        <div className="flex items-center space-x-3">
+        {/* Upvotes & Downvotes (따봉 반대 - 싫어요) */}
+        <div className="flex items-center space-x-2">
           
-          {/* Upvote Button */}
+          {/* Upvote Button (좋아요 / 따봉) */}
           <button
             id={`btn-upvote-${suggestion.id}`}
-            onClick={(e) => onUpvote(suggestion.id, e)}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUpvote(suggestion.id, e);
+            }}
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               isUpvoted
                 ? 'bg-[#5F7161] text-white shadow-2xs scale-105'
                 : 'bg-[#F4F1EA] text-[#4A443F] hover:bg-[#E6E2D3] border border-[#E6E2D3]'
             }`}
+            title={isUpvoted ? '좋아요 취소' : '좋아요'}
           >
             <ThumbsUp className={`w-3.5 h-3.5 ${isUpvoted ? 'fill-current' : ''}`} />
-            <span>{suggestion.upvotes}</span>
+            <span>{suggestion.upvotes ?? 0}</span>
           </button>
 
-          {/* Comment Count */}
-          <div className="flex items-center space-x-1 text-[#8C8479] font-semibold">
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>{suggestion.comments?.length || 0}</span>
-          </div>
+          {/* Downvote Button (싫어요 / 따봉 반대) */}
+          <button
+            id={`btn-downvote-${suggestion.id}`}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onDownvote) onDownvote(suggestion.id, e);
+            }}
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              isDownvoted
+                ? 'bg-rose-600 text-white shadow-2xs scale-105'
+                : 'bg-[#F4F1EA] text-[#4A443F] hover:bg-[#E6E2D3] border border-[#E6E2D3]'
+            }`}
+            title={isDownvoted ? '싫어요 취소' : '싫어요'}
+          >
+            <ThumbsDown className={`w-3.5 h-3.5 ${isDownvoted ? 'fill-current' : ''}`} />
+            <span>{suggestion.downvotes ?? 0}</span>
+          </button>
 
         </div>
 

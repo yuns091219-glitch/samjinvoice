@@ -29,6 +29,7 @@ export interface ExtractedMetadata {
   officialResponse?: OfficialResponse;
   isSecret?: boolean;
   isApproved?: boolean;
+  downvotes?: number;
 }
 
 /**
@@ -44,6 +45,7 @@ export const stripMetadataMarkers = (text?: string): string => {
     .replace(/\[COMMENTS:[^\]]+\]\s*/gi, '')
     .replace(/\[OFFICIAL_RESPONSE:[^\]]+\]\s*/gi, '')
     .replace(/\[APPROVAL:[^\]]+\]\s*/gi, '')
+    .replace(/\[(?:DOWNVOTES|DISLIKES):[^\]]+\]\s*/gi, '')
     .trim();
 };
 
@@ -132,6 +134,13 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
     else if (val === 'PENDING' || val === 'FALSE') isApproved = false;
   }
 
+  // 8. Downvotes (싫어요)
+  let downvotes: number | undefined;
+  const downvotesMatch = contentStr.match(/\[(?:DOWNVOTES|DISLIKES):(\d+)\]/i) || titleStr.match(/\[(?:DOWNVOTES|DISLIKES):(\d+)\]/i);
+  if (downvotesMatch && downvotesMatch[1]) {
+    downvotes = parseInt(downvotesMatch[1], 10);
+  }
+
   const cleanTitle = stripMetadataMarkers(titleStr) || '제목 없음';
   const cleanContent = stripMetadataMarkers(contentStr);
 
@@ -146,6 +155,7 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
     officialResponse,
     isSecret,
     isApproved,
+    downvotes,
   };
 };
 
@@ -241,6 +251,7 @@ export interface Suggestion {
   isSecret: boolean;
   secretPin?: string;      // 4-digit PIN to edit/delete/view if secret
   upvotes: number;
+  downvotes?: number;      // 싫어요 (따봉 반대)
   status: Status;
   isApproved?: boolean;    // false = 승인 대기(관리자만 확인 가능), true = 승인 완료(전체 공개)
   approvedAt?: string;
@@ -248,7 +259,7 @@ export interface Suggestion {
   imageUrl?: string;
   createdAt: string;
   updatedAt: string;
-  comments: Comment[];
+  comments?: Comment[];
   officialResponse?: OfficialResponse;
   aiSummary?: string;
   aiCategoryReasoning?: string;

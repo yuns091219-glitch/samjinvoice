@@ -12,6 +12,7 @@ import {
   fetchSuggestionsFromSupabase,
   insertSuggestionToSupabase,
   incrementLikesInSupabase,
+  incrementDislikesInSupabase,
   updateStatusInSupabase,
   approveSuggestionInSupabase,
   deleteSuggestionFromSupabase,
@@ -394,11 +395,11 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
         );
       }
 
-      // Sort options: 'latest', 'upvotes', 'comments'
+      // Sort options: 'latest', 'upvotes', 'downvotes'
       if (sort === 'upvotes') {
         filtered.sort((a, b) => b.upvotes - a.upvotes);
-      } else if (sort === 'comments') {
-        filtered.sort((a, b) => b.comments.length - a.comments.length);
+      } else if (sort === 'downvotes') {
+        filtered.sort((a, b) => (b.downvotes || 0) - (a.downvotes || 0));
       } else {
         // default 'latest'
         filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -598,6 +599,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
           status: 'PENDING_APPROVAL',
           isApproved: false,
           upvotes: 0,
+          downvotes: 0,
           tags: rawTags.length > 0 ? rawTags : ['#마산삼진고', '#건의사항'],
           comments: [],
           createdAt: new Date().toISOString(),
@@ -686,6 +688,47 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
     }
   });
 
+  // Downvote / Dislike suggestion (싫어요 - 따봉 반대)
+  app.post('/api/suggestions/:id/downvote', async (req, res) => {
+    const { id } = req.params;
+    const stringId = String(id);
+    const { action } = req.body || {};
+    const isAdminUser = isRequestAdmin(req);
+
+    try {
+      const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
+      const currentDownvotes = idx !== -1 ? (suggestionsStore[idx].downvotes || 0) : 0;
+      const delta = (action === 'cancel' || action === 'upvote') ? -1 : 1;
+      const newDownvotes = Math.max(0, currentDownvotes + delta);
+
+      let updated: Suggestion | null = null;
+      try {
+        updated = await incrementDislikesInSupabase(stringId, currentDownvotes, delta);
+      } catch (err) {
+        console.warn('Supabase downvote error, using in-memory store:', err);
+      }
+
+      if (idx !== -1) {
+        suggestionsStore[idx] = {
+          ...suggestionsStore[idx],
+          downvotes: updated?.downvotes ?? newDownvotes,
+        };
+        res.json(formatSafeSuggestion(suggestionsStore[idx], isAdminUser));
+        return;
+      }
+
+      if (updated) {
+        res.json(formatSafeSuggestion(updated, isAdminUser));
+        return;
+      }
+
+      res.status(404).json({ error: '해당 건의사항을 찾을 수 없습니다.' });
+    } catch (err: any) {
+      console.warn('Error updating downvote:', err);
+      res.status(500).json({ error: '싫어요 처리 중 오류가 발생했습니다.' });
+    }
+  });
+
   // Add comment
   app.post('/api/suggestions/:id/comments', async (req, res) => {
     const { id } = req.params;
@@ -725,6 +768,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
         isSecret: false,
         status: 'RECEIVED',
         upvotes: 0,
+        downvotes: 0,
         tags: [],
         comments: updatedComments,
         createdAt: new Date().toISOString(),
@@ -899,6 +943,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
           status: 'RECEIVED',
           isApproved: true,
           upvotes: 0,
+          downvotes: 0,
           tags: [],
           comments: [],
           createdAt: new Date().toISOString(),

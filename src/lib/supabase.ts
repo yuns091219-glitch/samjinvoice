@@ -204,6 +204,7 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     isSecret,
     secretPin: finalPin || undefined,
     upvotes: Number(row.likes ?? row.upvotes ?? 0),
+    downvotes: Number(row.dislikes ?? row.downvotes ?? extracted.downvotes ?? 0),
     status: effectiveStatus,
     isApproved,
     tags: finalTags,
@@ -710,6 +711,72 @@ export const incrementLikesInSupabase = async (
   }
 
   return mapRowToSuggestion(data);
+};
+
+/**
+ * 싫어요(비공감/따봉 반대) 버튼: 클릭 시 해당 건의사항의 dislikes 숫자를 DB UPDATE
+ */
+export const incrementDislikesInSupabase = async (
+  id: string,
+  currentDislikes: number,
+  delta: number = 1
+): Promise<Suggestion> => {
+  const newDislikes = Math.max(0, currentDislikes + delta);
+
+  // Try updating dislikes column directly
+  try {
+    const { data, error } = await supabase
+      .from('suggestions')
+      .update({ dislikes: newDislikes })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      return mapRowToSuggestion(data);
+    }
+  } catch (err) {
+    console.warn('Supabase update dislikes column error, fallback to content tag:', err);
+  }
+
+  // Fallback: store [DISLIKES:N] inside content
+  try {
+    const { data: current } = await supabase.from('suggestions').select('*').eq('id', id).single();
+    if (current) {
+      let rawContent = current.content || '';
+      if (/\[(?:DISLIKES|DOWNVOTES):\d+\]/i.test(rawContent)) {
+        rawContent = rawContent.replace(/\[(?:DISLIKES|DOWNVOTES):\d+\]/i, `[DISLIKES:${newDislikes}]`);
+      } else {
+        rawContent = `${rawContent} [DISLIKES:${newDislikes}]`;
+      }
+      const { data: updatedData } = await supabase
+        .from('suggestions')
+        .update({ content: rawContent })
+        .eq('id', id)
+        .select()
+        .single();
+      if (updatedData) {
+        return mapRowToSuggestion(updatedData);
+      }
+    }
+  } catch (fallbackErr) {
+    console.warn('Fallback content dislikes update error:', fallbackErr);
+  }
+
+  return {
+    id,
+    category: 'OTHER',
+    title: '제목 없음',
+    content: '',
+    authorNickname: '익명의 삼진인',
+    isSecret: false,
+    upvotes: 0,
+    downvotes: newDislikes,
+    status: 'RECEIVED',
+    tags: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
 };
 
 /**

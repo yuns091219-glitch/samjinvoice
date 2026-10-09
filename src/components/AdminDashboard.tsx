@@ -513,7 +513,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             )}
                           </div>
                           <p className="text-xs text-slate-500 truncate">
-                            {s.authorNickname || '익명의 삼진인'} • 공감 {s.upvotes}개 • {new Date(s.createdAt).toLocaleDateString('ko-KR')}
+                            {s.authorNickname || '익명의 삼진인'} • 👍 {s.upvotes ?? 0} • 👎 {s.downvotes ?? 0} • {new Date(s.createdAt).toLocaleDateString('ko-KR')}
                           </p>
                         </div>
 

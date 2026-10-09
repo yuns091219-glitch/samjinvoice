@@ -9,8 +9,8 @@ interface CategoryFilterBarProps {
   onSelectStatus: (status: Status | 'ALL') => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
-  sortBy: 'latest' | 'upvotes' | 'comments';
-  onSortChange: (sort: 'latest' | 'upvotes' | 'comments') => void;
+  sortBy: 'latest' | 'upvotes' | 'downvotes';
+  onSortChange: (sort: 'latest' | 'upvotes' | 'downvotes') => void;
 }
 
 const CATEGORY_ITEMS: { key: Category | 'ALL'; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -106,12 +106,12 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
             <select
               id="select-sort-by"
               value={sortBy}
-              onChange={(e) => onSortChange(e.target.value as 'latest' | 'upvotes' | 'comments')}
+              onChange={(e) => onSortChange(e.target.value as 'latest' | 'upvotes' | 'downvotes')}
               className="w-full bg-[#F4F1EA] border border-[#E6E2D3] text-[#2D2926] text-xs font-semibold rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#5F7161] cursor-pointer"
             >
               <option value="latest">최신순</option>
-              <option value="upvotes">공감순</option>
-              <option value="comments">댓글순</option>
+              <option value="upvotes">좋아요순</option>
+              <option value="downvotes">싫어요순</option>
             </select>
           </div>
         </div>

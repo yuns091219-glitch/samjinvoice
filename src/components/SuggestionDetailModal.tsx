@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Suggestion, Status, Comment, normalizeCategory, isSecretSuggestion, isPostUnlocked, markPostAsUnlocked, stripMetadataMarkers, deduplicateComments } from '../types';
+import { Suggestion, Status, normalizeCategory, isSecretSuggestion, isPostUnlocked, markPostAsUnlocked, stripMetadataMarkers } from '../types';
 import { STATUS_CONFIG, CATEGORY_LABELS, CATEGORY_ICONS } from './SuggestionCard';
-import { getRandomAnonymousNickname } from '../data/initialData';
 import { verifySuggestionPin } from '../lib/supabase';
 import { maskProfanity } from '../lib/profanityFilter';
-import { X, ThumbsUp, MessageSquare, Lock, Send, ShieldCheck, CheckCircle2, AlertCircle, Trash2, KeyRound, UserCheck, Clock } from 'lucide-react';
+import { X, ThumbsUp, ThumbsDown, Lock, ShieldCheck, CheckCircle2, AlertCircle, Trash2, KeyRound, UserCheck, Clock } from 'lucide-react';
 
 interface SuggestionDetailModalProps {
   suggestion: Suggestion | null;
   isOpen: boolean;
   onClose: () => void;
   onUpvote: (id: string) => void;
-  onAddComment: (suggestionId: string, nickname: string, content: string, isOfficial?: boolean) => void;
+  onDownvote?: (id: string) => void;
+  onAddComment?: (suggestionId: string, nickname: string, content: string, isOfficial?: boolean) => void;
   onDeleteComment?: (suggestionId: string, commentId: string) => void;
   onUpdateStatus: (
     id: string,
@@ -25,6 +25,7 @@ interface SuggestionDetailModalProps {
   isAdmin: boolean;
   adminToken?: string | null;
   isUpvoted?: boolean;
+  isDownvoted?: boolean;
   isMyPost?: boolean;
 }
 
@@ -33,6 +34,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   isOpen,
   onClose,
   onUpvote,
+  onDownvote,
   onAddComment,
   onDeleteComment,
   onUpdateStatus,
@@ -41,6 +43,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   isAdmin,
   adminToken,
   isUpvoted = false,
+  isDownvoted = false,
   isMyPost = false,
 }) => {
   if (!isOpen || !suggestion) return null;
@@ -52,9 +55,6 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   const [unlockedSuggestion, setUnlockedSuggestion] = useState<Suggestion | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
 
-  const [commentNickname, setCommentNickname] = useState(() => getRandomAnonymousNickname());
-  const [commentContent, setCommentContent] = useState('');
-
   // Admin response state
   const [newStatus, setNewStatus] = useState<Status>(suggestion.status);
   const [responseDepartment, setResponseDepartment] = useState('제53대 학생회');
@@ -62,7 +62,6 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     suggestion.officialResponse?.authorName || '학생자치부장'
   );
   const [responseContent, setResponseContent] = useState(suggestion.officialResponse?.content || '');
-  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
   const activeSuggestion = unlockedSuggestion || suggestion;
 
@@ -132,8 +131,8 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
         if (!prev) return suggestion;
         return {
           ...prev,
-          comments: deduplicateComments(suggestion.comments || prev.comments || []),
           upvotes: suggestion.upvotes,
+          downvotes: suggestion.downvotes,
           status: suggestion.status,
           officialResponse: suggestion.officialResponse,
           tags: suggestion.tags || prev.tags,
@@ -194,25 +193,6 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
       setPinError('비밀번호(PIN 4자리)가 일치하지 않습니다.');
     }
     setIsVerifying(false);
-  };
-
-  const handleCommentSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!commentContent.trim() || isSubmittingComment) return;
-    const contentToSubmit = commentContent.trim();
-    const nickToSubmit = commentNickname.trim();
-
-    setIsSubmittingComment(true);
-    setCommentContent('');
-    setCommentNickname(getRandomAnonymousNickname());
-
-    try {
-      await onAddComment(activeSuggestion.id, nickToSubmit, contentToSubmit, isAdmin);
-    } finally {
-      setTimeout(() => {
-        setIsSubmittingComment(false);
-      }, 500);
-    }
   };
 
   const handleAdminStatusSave = () => {
@@ -387,19 +367,40 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
                     <span>{new Date(activeSuggestion.createdAt).toLocaleString('ko-KR')}</span>
                   </div>
 
-                  <button
-                    id="btn-detail-upvote"
-                    onClick={() => onUpvote(activeSuggestion.id)}
-                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold transition-all border ${
-                      isUpvoted
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-xs'
-                        : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'
-                    }`}
-                    title={isUpvoted ? '공감 취소' : '이 건의에 공감합니다'}
-                  >
-                    <ThumbsUp className={`w-4 h-4 ${isUpvoted ? 'fill-current' : ''}`} />
-                    <span>공감 {activeSuggestion.upvotes}</span>
-                  </button>
+                  {/* 좋아요 & 싫어요 (따봉 반대) 버튼 그룹 */}
+                  <div className="flex items-center space-x-2">
+                    {/* 좋아요 Button */}
+                    <button
+                      id="btn-detail-upvote"
+                      type="button"
+                      onClick={() => onUpvote(activeSuggestion.id)}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold transition-all border text-xs sm:text-sm ${
+                        isUpvoted
+                          ? 'bg-[#5F7161] hover:bg-[#4D5C4F] text-white border-[#5F7161] shadow-xs'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                      }`}
+                      title={isUpvoted ? '좋아요 취소' : '좋아요'}
+                    >
+                      <ThumbsUp className={`w-4 h-4 ${isUpvoted ? 'fill-current' : ''}`} />
+                      <span>좋아요 {activeSuggestion.upvotes ?? 0}</span>
+                    </button>
+
+                    {/* 싫어요 Button (따봉 반대) */}
+                    <button
+                      id="btn-detail-downvote"
+                      type="button"
+                      onClick={() => onDownvote && onDownvote(activeSuggestion.id)}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold transition-all border text-xs sm:text-sm ${
+                        isDownvoted
+                          ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-600 shadow-xs'
+                          : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                      }`}
+                      title={isDownvoted ? '싫어요 취소' : '싫어요'}
+                    >
+                      <ThumbsDown className={`w-4 h-4 ${isDownvoted ? 'fill-current' : ''}`} />
+                      <span>싫어요 {activeSuggestion.downvotes ?? 0}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -555,100 +556,6 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
                   </div>
                 </div>
               )}
-
-              {/* Anonymous Comments Section */}
-              <div className="space-y-4 pt-4 border-t border-slate-200">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-slate-900 text-base flex items-center gap-1.5">
-                    <MessageSquare className="w-4 h-4 text-blue-600" />
-                    익명 댓글 ({activeSuggestion.comments?.length || 0})
-                  </h3>
-                </div>
-
-                {/* Comment Input */}
-                <form onSubmit={handleCommentSubmit} className="space-y-2">
-                  <div className="flex gap-2">
-                    <div className="w-1/3 min-w-[120px]">
-                      <input
-                        type="text"
-                        value={commentNickname}
-                        readOnly
-                        tabIndex={-1}
-                        title="자동 부여된 익명 닉네임 (수정 불가)"
-                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-100 text-slate-600 font-bold cursor-not-allowed select-none focus:outline-none"
-                      />
-                    </div>
-                    <input
-                      type="text"
-                      value={commentContent}
-                      onChange={(e) => setCommentContent(e.target.value)}
-                      placeholder="따뜻한 응원이나 의견 댓글을 남겨주세요..."
-                      className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      type="submit"
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors shrink-0 flex items-center gap-1"
-                    >
-                      <Send className="w-3.5 h-3.5" /> 등록
-                    </button>
-                  </div>
-                </form>
-
-                {/* Comment List */}
-                <div className="space-y-2.5">
-                  {activeSuggestion.comments?.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-4">첫 번째 익명 댓글을 작성해 보세요!</p>
-                  ) : (
-                    activeSuggestion.comments.map((comment) => {
-                      const displayAuthor = isAdmin ? (comment.authorNickname || '익명의 삼진인') : maskProfanity(comment.authorNickname || '익명의 삼진인');
-                      const displayContent = isAdmin ? comment.content : maskProfanity(comment.content);
-
-                      return (
-                        <div
-                          key={comment.id}
-                          className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                            comment.isOfficial
-                              ? 'bg-blue-50/80 border-blue-200 text-blue-950 font-medium'
-                              : 'bg-slate-50 border-slate-200 text-slate-800'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-bold flex items-center gap-1">
-                              {comment.isOfficial && (
-                                <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.2 rounded-md">
-                                  {comment.officialRole || '학생회'}
-                                </span>
-                              )}
-                              {displayAuthor}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-slate-400">
-                                {new Date(comment.createdAt).toLocaleDateString('ko-KR', {
-                                  month: 'numeric',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                              {isAdmin && onDeleteComment && (
-                                <button
-                                  type="button"
-                                  onClick={() => onDeleteComment(activeSuggestion.id, comment.id)}
-                                  className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 rounded-sm"
-                                  title="관리자 권한으로 댓글 삭제"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <p className="whitespace-pre-wrap">{displayContent}</p>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
             </>
           )}
 

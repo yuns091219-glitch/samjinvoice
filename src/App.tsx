@@ -26,6 +26,7 @@ import {
   fetchSuggestionsFromSupabase,
   insertSuggestionToSupabase,
   incrementLikesInSupabase,
+  incrementDislikesInSupabase,
   updateStatusInSupabase,
   approveSuggestionInSupabase,
   deleteSuggestionFromSupabase,
@@ -81,11 +82,24 @@ export default function App() {
     localStorage.setItem('samjin_upvoted_ids', JSON.stringify(upvotedIds));
   }, [upvotedIds]);
 
+  // Disliked suggestions tracking (persisted in localStorage)
+  const [downvotedIds, setDownvotedIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('samjin_downvoted_ids') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('samjin_downvoted_ids', JSON.stringify(downvotedIds));
+  }, [downvotedIds]);
+
   // Filters (Used when in Admin Mode)
   const [selectedCategory, setSelectedCategory] = useState<Category | 'ALL'>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<Status | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'latest' | 'upvotes' | 'comments'>('latest');
+  const [sortBy, setSortBy] = useState<'latest' | 'upvotes' | 'downvotes'>('latest');
 
   // Modals & Mode
   const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion | null>(null);
@@ -485,10 +499,8 @@ export default function App() {
         if (sortBy === 'upvotes') {
           const diff = (b.upvotes || 0) - (a.upvotes || 0);
           if (diff !== 0) return diff;
-        } else if (sortBy === 'comments') {
-          const aComments = Array.isArray(a.comments) ? a.comments.length : 0;
-          const bComments = Array.isArray(b.comments) ? b.comments.length : 0;
-          const diff = bComments - aComments;
+        } else if (sortBy === 'downvotes') {
+          const diff = (b.downvotes || 0) - (a.downvotes || 0);
           if (diff !== 0) return diff;
         }
         // default: latest (최신순)
@@ -632,10 +644,81 @@ export default function App() {
 
       if (isAlreadyUpvoted) {
         setUpvotedIds((prev) => prev.filter((item) => item !== id));
-        showToast('🤍 공감을 취소했습니다.');
+        showToast('🤍 좋아요를 취소했습니다.');
       } else {
         setUpvotedIds((prev) => [...prev, id]);
-        showToast('👍 건의글에 공감표시를 하였습니다!');
+        showToast('👍 건의글에 좋아요를 표시했습니다!');
+      }
+    }
+  };
+
+  // Dislike (싫어요 - 따봉 반대) Handler
+  const handleDownvote = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const isAlreadyDownvoted = downvotedIds.includes(id);
+    const action = isAlreadyDownvoted ? 'cancel' : 'downvote';
+    const delta = isAlreadyDownvoted ? -1 : 1;
+    const targetPost = suggestions.find((s) => s.id === id);
+
+    let updatedPost: Suggestion | null = null;
+
+    try {
+      const res = await fetch(`/api/suggestions/${id}/downvote${getAdminQuery()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
+        body: JSON.stringify({ action }),
+      });
+      if (res.ok) {
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          updatedPost = await res.json();
+        }
+      }
+    } catch (err) {
+      console.warn('Express API downvote failed:', err);
+    }
+
+    if (!updatedPost && targetPost) {
+      try {
+        updatedPost = await incrementDislikesInSupabase(id, targetPost.downvotes || 0, delta);
+      } catch (sbErr) {
+        console.warn('Supabase direct downvote failed:', sbErr);
+      }
+    }
+
+    if (!updatedPost && targetPost) {
+      updatedPost = {
+        ...targetPost,
+        downvotes: Math.max(0, (targetPost.downvotes || 0) + delta),
+      };
+    }
+
+    if (updatedPost) {
+      const resp = updatedPost;
+      setSuggestions((prev) =>
+        prev.map((s) => {
+          if (String(s.id) === String(id)) {
+            const merged: Suggestion = {
+              ...s,
+              ...resp,
+              id: String(s.id),
+              downvotes: Math.max(0, Number(resp.downvotes ?? ((s.downvotes || 0) + delta))),
+            };
+            if (selectedSuggestion?.id === id) {
+              setSelectedSuggestion(merged);
+            }
+            return merged;
+          }
+          return s;
+        })
+      );
+
+      if (isAlreadyDownvoted) {
+        setDownvotedIds((prev) => prev.filter((item) => item !== id));
+        showToast('싫어요를 취소했습니다.');
+      } else {
+        setDownvotedIds((prev) => [...prev, id]);
+        showToast('👎 건의글에 싫어요를 표시했습니다.');
       }
     }
   };
@@ -989,6 +1072,7 @@ export default function App() {
         status: 'PENDING_APPROVAL',
         isApproved: false,
         upvotes: 0,
+        downvotes: 0,
         tags: formData.tags.length > 0 ? formData.tags : ['#마산삼진고', '#건의사항'],
         comments: [],
         createdAt: new Date().toISOString(),
@@ -1471,10 +1555,12 @@ export default function App() {
                     suggestion={suggestion}
                     onSelectCard={(s) => setSelectedSuggestion(s)}
                     onUpvote={handleUpvote}
+                    onDownvote={handleDownvote}
                     onTagClick={(tag) => setSearchQuery(tag)}
                     onDeleteSuggestion={handleDeleteSuggestion}
                     onApproveSuggestion={handleApproveSuggestion}
                     isUpvoted={upvotedIds.includes(suggestion.id)}
+                    isDownvoted={downvotedIds.includes(suggestion.id)}
                     isAdmin={isAdmin}
                     isMyPost={isMyPost(suggestion)}
                   />
@@ -1492,14 +1578,14 @@ export default function App() {
         isOpen={Boolean(selectedSuggestion)}
         onClose={() => setSelectedSuggestion(null)}
         onUpvote={handleUpvote}
-        onAddComment={handleAddComment}
-        onDeleteComment={handleDeleteComment}
+        onDownvote={handleDownvote}
         onUpdateStatus={handleUpdateStatus}
         onDeleteSuggestion={handleDeleteSuggestion}
         onApproveSuggestion={handleApproveSuggestion}
         isAdmin={isAdmin}
         adminToken={adminToken}
         isUpvoted={selectedSuggestion ? upvotedIds.includes(selectedSuggestion.id) : false}
+        isDownvoted={selectedSuggestion ? downvotedIds.includes(selectedSuggestion.id) : false}
         isMyPost={selectedSuggestion ? isMyPost(selectedSuggestion) : false}
       />
 
