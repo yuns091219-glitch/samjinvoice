@@ -3,7 +3,7 @@ import { Category } from '../types';
 import { CATEGORY_LABELS, CATEGORY_ICONS } from './SuggestionCard';
 import { getRandomAnonymousNickname } from '../data/initialData';
 import { maskProfanity } from '../lib/profanityFilter';
-import { X, MessageSquarePlus, Lock, Tag, Heart, Send, Search, RefreshCw, UserCheck } from 'lucide-react';
+import { X, MessageSquarePlus, Lock, Tag, Heart, Send, Search, RefreshCw, UserCheck, Clock } from 'lucide-react';
 
 interface SuggestionFormModalProps {
   isOpen: boolean;
@@ -478,6 +478,14 @@ export const SuggestionFormModal: React.FC<SuggestionFormModalProps> = ({
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Review Process Notice */}
+          <div className="flex items-center gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 leading-relaxed">
+            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              💡 작성된 건의는 <strong>학생회 관리자 페이지(승인 대기함)</strong>에 먼저 등록되며, 관리자 검토를 통과한 후 모든 학우가 볼 수 있는 게시판에 공개됩니다.
+            </span>
           </div>
 
           {/* Submit */}

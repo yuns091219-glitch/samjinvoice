@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { INITIAL_NOTICES, INITIAL_SUGGESTIONS, TODAY_LUNCH } from './src/data/initialData';
@@ -12,6 +13,7 @@ import {
   insertSuggestionToSupabase,
   incrementLikesInSupabase,
   updateStatusInSupabase,
+  approveSuggestionInSupabase,
   deleteSuggestionFromSupabase,
   addCommentToSupabase,
   deleteCommentFromSupabase,
@@ -163,20 +165,104 @@ async function startServer() {
     res.json(lunchStore);
   });
 
-function isRequestAdmin(req: express.Request): boolean {
-  const queryAdmin = String(req.query?.isAdmin) === 'true';
-  const queryPin = String(req.query?.adminPin) === '20ghdaudqh02';
-  const headerToken =
-    req.headers['x-admin-token'] === '20ghdaudqh02' ||
-    req.headers['x-admin-pin'] === '20ghdaudqh02' ||
-    req.headers['x-is-admin'] === 'true';
-  const bodyPin =
-    req.body &&
-    (req.body.adminPin === '20ghdaudqh02' ||
-      req.body.isAdmin === true ||
-      String(req.body.isAdmin) === 'true');
-  return queryAdmin || queryPin || headerToken || Boolean(bodyPin);
-}
+  // Server-side admin PIN & active session tokens (NEVER sent to client browser bundles)
+  let serverAdminPin = (process.env.ADMIN_PIN || '20ghdaudqh02').trim();
+  const SESSIONS_FILE = path.join(process.cwd(), '.admin_sessions.json');
+  function loadAdminTokens(): Set<string> {
+    try {
+      if (fs.existsSync(SESSIONS_FILE)) {
+        const data = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
+        if (Array.isArray(data)) return new Set(data.map(String));
+      }
+    } catch {}
+    return new Set();
+  }
+  function saveAdminTokens(tokens: Set<string>) {
+    try {
+      fs.writeFileSync(SESSIONS_FILE, JSON.stringify(Array.from(tokens)), 'utf-8');
+    } catch {}
+  }
+  const activeAdminTokens = loadAdminTokens();
+
+  function isRequestAdmin(req: express.Request): boolean {
+    // 1. Check Bearer token or x-admin-token in headers against active server sessions
+    const authHeader = req.headers['authorization'];
+    let token = '';
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7).trim();
+    }
+    if (!token && req.headers['x-admin-token']) {
+      token = String(req.headers['x-admin-token']).trim();
+    }
+    if (token && activeAdminTokens.has(token)) {
+      return true;
+    }
+
+    // 2. Direct server-side admin PIN header (for server-to-server or secure CLI)
+    const adminPinHeader = String(req.headers['x-admin-pin'] || '').trim();
+    if (adminPinHeader && adminPinHeader === serverAdminPin) {
+      return true;
+    }
+
+    // 3. Explicit admin PIN in body (if provided during API call)
+    if (req.body && typeof req.body.adminPin === 'string' && req.body.adminPin.trim() === serverAdminPin) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // --- ADMIN AUTHENTICATION API ROUTES ---
+  // 1. Admin Login: Verifies PIN on the server, generates cryptographically secure session token
+  app.post('/api/admin/login', (req, res) => {
+    const { pin } = req.body || {};
+    if (!pin || typeof pin !== 'string') {
+      res.status(400).json({ success: false, error: '관리자 비밀번호를 입력해주세요.' });
+      return;
+    }
+    if (pin.trim() !== serverAdminPin) {
+      res.status(401).json({ success: false, error: '관리자 비밀번호가 일치하지 않습니다.' });
+      return;
+    }
+    const token = crypto.randomUUID();
+    activeAdminTokens.add(token);
+    saveAdminTokens(activeAdminTokens);
+    res.json({ success: true, token, message: '관리자 인증 성공' });
+  });
+
+  // 2. Admin Token Verification
+  app.get('/api/admin/verify', (req, res) => {
+    const isAdmin = isRequestAdmin(req);
+    res.json({ isAdmin });
+  });
+
+  // 3. Admin Logout
+  app.post('/api/admin/logout', (req, res) => {
+    const authHeader = req.headers['authorization'];
+    let token = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : String(req.headers['x-admin-token'] || '').trim();
+    if (token) {
+      activeAdminTokens.delete(token);
+      saveAdminTokens(activeAdminTokens);
+    }
+    res.json({ success: true, message: '관리자 세션이 종료되었습니다.' });
+  });
+
+  // 4. Admin Change PIN (Allows school admin to change password directly without editing code)
+  app.post('/api/admin/change-pin', (req, res) => {
+    if (!isRequestAdmin(req)) {
+      res.status(403).json({ success: false, error: '관리자 권한이 필요합니다.' });
+      return;
+    }
+    const { newPin } = req.body || {};
+    if (!newPin || typeof newPin !== 'string' || newPin.trim().length < 4) {
+      res.status(400).json({ success: false, error: '새 비밀번호는 최소 4자 이상이어야 합니다.' });
+      return;
+    }
+    serverAdminPin = newPin.trim();
+    res.json({ success: true, message: '관리자 비밀번호가 안전하게 변경되었습니다.' });
+  });
 
 function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, keepUnmaskedIfVerified: boolean = false): Suggestion {
   const stringId = String(item.id);
@@ -268,7 +354,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
 
   // Get suggestions with optional category, status, search filtering (Supabase)
   app.get('/api/suggestions', async (req, res) => {
-    const { category, status, search, sort, isAdmin, adminPin } = req.query;
+    const { category, status, search, sort } = req.query;
 
     try {
       let filtered = await fetchSuggestionsFromSupabase();
@@ -319,6 +405,13 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
       }
 
       const isAdminUser = isRequestAdmin(req);
+
+      // Non-admin public board: Only show approved suggestions
+      if (!isAdminUser) {
+        filtered = filtered.filter(
+          (s) => s.isApproved === true || (s.status !== 'PENDING_APPROVAL' && s.isApproved !== false)
+        );
+      }
 
       const safeList = filtered.map((item) => {
         const memItem = suggestionsStore.find((s) => String(s.id) === String(item.id));
@@ -489,6 +582,8 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
           authorNickname: rawAuthor,
           tags: rawTags,
           secretPin: secretPin ? String(secretPin).trim() : undefined,
+          isApproved: false,
+          status: 'PENDING_APPROVAL',
         });
       } catch (dbErr) {
         console.warn('Supabase insert failed, creating in-memory fallback:', dbErr);
@@ -500,7 +595,8 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
           authorNickname: rawAuthor,
           isSecret: Boolean(isSecret),
           secretPin: secretPin ? String(secretPin).trim() : undefined,
-          status: 'RECEIVED',
+          status: 'PENDING_APPROVAL',
+          isApproved: false,
           upvotes: 0,
           tags: rawTags.length > 0 ? rawTags : ['#마산삼진고', '#건의사항'],
           comments: [],
@@ -508,6 +604,9 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
           updatedAt: new Date().toISOString(),
         };
       }
+
+      newSuggestion.status = 'PENDING_APPROVAL';
+      newSuggestion.isApproved = false;
 
       // Ensure isSecret, category, authorNickname, tags, and secretPin are explicitly preserved on newSuggestion
       const cleanAuthor = rawAuthor || newSuggestion.authorNickname || '익명의 삼진인';
@@ -701,7 +800,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
 
     const storedPin = secretPinStore.get(stringId) || (found.secretPin ? String(found.secretPin).trim() : undefined);
 
-    const isAdminBypass = cleanPin === '20ghdaudqh02';
+    const isAdminBypass = isRequestAdmin(req);
     const isMatched = isAdminBypass || (Boolean(storedPin) && storedPin === cleanPin);
 
     if (isMatched) {
@@ -730,11 +829,11 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
   // Admin/Student Council Status & Official Response Update (Supabase)
   app.patch('/api/suggestions/:id/status', async (req, res) => {
     const { id } = req.params;
-    const { status, officialResponse, adminPin } = req.body;
+    const { status, officialResponse } = req.body;
 
-    // Admin PIN check ('20ghdaudqh02')
-    if (adminPin !== '20ghdaudqh02') {
-      res.status(403).json({ error: '관리자 권한 비밀번호가 올바르지 않습니다.' });
+    // Check admin authentication
+    if (!isRequestAdmin(req)) {
+      res.status(403).json({ error: '관리자 권한이 올바르지 않습니다.' });
       return;
     }
 
@@ -760,46 +859,101 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
     }
   });
 
-  // Delete suggestion (Supabase DELETE)
-  app.delete('/api/suggestions/:id', async (req, res) => {
+  // Admin Approve Suggestion: 통과시켜 전체 게시판에 공개
+  app.patch('/api/suggestions/:id/approve', async (req, res) => {
     const { id } = req.params;
     const stringId = String(id);
-    const { pin, adminPin } = req.body;
 
-    const isAdmin = adminPin === '20ghdaudqh02';
-
-    let found = suggestionsStore.find((s) => String(s.id) === stringId);
-    if (!found) {
-      try {
-        const list = await fetchSuggestionsFromSupabase();
-        found = list.find((s) => String(s.id) === stringId);
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    const storedPin = secretPinStore.get(stringId) || (found?.secretPin ? String(found.secretPin).trim() : undefined);
-
-    if (found && (storedPin || found.isSecret) && !isAdmin) {
-      const cleanPin = String(pin || '').trim();
-      if (!storedPin || storedPin !== cleanPin) {
-        res.status(401).json({ error: '삭제용 비밀번호가 일치하지 않습니다.' });
-        return;
-      }
+    if (!isRequestAdmin(req)) {
+      res.status(403).json({ error: '관리자 권한이 올바르지 않습니다.' });
+      return;
     }
 
     try {
-      await deleteSuggestionFromSupabase(id);
+      let updated: Suggestion | null = null;
+      try {
+        updated = await approveSuggestionInSupabase(stringId);
+      } catch (sbErr) {
+        console.warn('approveSuggestionInSupabase error:', sbErr);
+      }
+
+      const idx = suggestionsStore.findIndex((s) => String(s.id) === stringId);
+      if (idx !== -1) {
+        suggestionsStore[idx].status = 'RECEIVED';
+        suggestionsStore[idx].isApproved = true;
+        suggestionsStore[idx].updatedAt = new Date().toISOString();
+        if (!updated) {
+          updated = suggestionsStore[idx];
+        }
+      }
+
+      if (!updated) {
+        const found = suggestionsStore.find((s) => String(s.id) === stringId);
+        updated = found || {
+          id: stringId,
+          category: 'OTHER',
+          title: '',
+          content: '',
+          authorNickname: '익명',
+          isSecret: false,
+          status: 'RECEIVED',
+          isApproved: true,
+          upvotes: 0,
+          tags: [],
+          comments: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      updated.isApproved = true;
+      updated.status = 'RECEIVED';
+
+      res.json(formatSafeSuggestion(updated, true));
     } catch (err: any) {
-      console.warn('Error deleting suggestion from Supabase:', err);
+      console.error('Error approving suggestion:', err);
+      res.status(500).json({ error: '건의사항 승인 처리 중 오류가 발생했습니다.' });
     }
+  });
 
-    const index = suggestionsStore.findIndex((s) => String(s.id) === stringId);
-    if (index !== -1) {
-      suggestionsStore.splice(index, 1);
+  // Delete suggestion (Supabase DELETE - Admin Only)
+  app.delete('/api/suggestions/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const stringId = String(id);
+
+      const isAdmin = isRequestAdmin(req);
+      if (!isAdmin) {
+        res.status(403).json({ error: '게시글 삭제 권한이 없습니다. 학생회 관리자만 삭제할 수 있습니다.' });
+        return;
+      }
+
+      // 1. Delete from Supabase
+      try {
+        await deleteSuggestionFromSupabase(id);
+      } catch (err: any) {
+        console.warn('Error deleting suggestion from Supabase:', err);
+      }
+
+      // 2. Remove from in-memory stores and clean up auxiliary maps
+      const index = suggestionsStore.findIndex((s) => String(s.id) === stringId);
+      if (index !== -1) {
+        suggestionsStore.splice(index, 1);
+      }
+
+      secretPinStore.delete(stringId);
+      authorNicknameStore.delete(stringId);
+      categoryStore.delete(stringId);
+      tagsStore.delete(stringId);
+      originalContentStore.delete(stringId);
+      delete persistentCommentsStore[stringId];
+      savePersistedComments(persistentCommentsStore);
+
+      res.json({ success: true, message: '건의사항이 삭제되었습니다.' });
+    } catch (err: any) {
+      console.error('Error deleting suggestion:', err);
+      res.status(500).json({ error: '건의사항 삭제 처리 중 오류가 발생했습니다.' });
     }
-
-    res.json({ success: true, message: '건의사항이 삭제되었습니다.' });
   });
 
   // AI Assistance: Gemini model analysis and draft response for Student Council
@@ -825,7 +979,7 @@ function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, ke
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.8-flash',
         contents: `당신은 마산삼진고등학교 학생회 및 학교 행정실의 AI 소통 도우미입니다.
 학생이 작성한 익명 건의사항을 분석하여 다음을 작성해주세요:
 

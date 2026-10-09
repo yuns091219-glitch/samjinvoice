@@ -25,6 +25,7 @@ const CATEGORY_ITEMS: { key: Category | 'ALL'; label: string; icon: React.Compon
 
 const STATUS_ITEMS: { key: Status | 'ALL'; label: string }[] = [
   { key: 'ALL', label: '모든 상태' },
+  { key: 'PENDING_APPROVAL', label: '승인 대기' },
   { key: 'RECEIVED', label: '접수됨' },
   { key: 'IN_REVIEW', label: '검토 중' },
   { key: 'ANSWERED', label: '답변 완료' },

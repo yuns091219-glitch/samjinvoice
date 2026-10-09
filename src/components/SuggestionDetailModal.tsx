@@ -4,7 +4,7 @@ import { STATUS_CONFIG, CATEGORY_LABELS, CATEGORY_ICONS } from './SuggestionCard
 import { getRandomAnonymousNickname } from '../data/initialData';
 import { verifySuggestionPin } from '../lib/supabase';
 import { maskProfanity } from '../lib/profanityFilter';
-import { X, ThumbsUp, MessageSquare, Lock, Send, ShieldCheck, CheckCircle2, AlertCircle, Trash2, KeyRound, UserCheck } from 'lucide-react';
+import { X, ThumbsUp, MessageSquare, Lock, Send, ShieldCheck, CheckCircle2, AlertCircle, Trash2, KeyRound, UserCheck, Clock } from 'lucide-react';
 
 interface SuggestionDetailModalProps {
   suggestion: Suggestion | null;
@@ -21,8 +21,9 @@ interface SuggestionDetailModalProps {
     department?: string
   ) => void;
   onDeleteSuggestion: (id: string, pin?: string) => void;
+  onApproveSuggestion?: (id: string) => void;
   isAdmin: boolean;
-  adminPin: string;
+  adminToken?: string | null;
   isUpvoted?: boolean;
   isMyPost?: boolean;
 }
@@ -36,8 +37,9 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   onDeleteComment,
   onUpdateStatus,
   onDeleteSuggestion,
+  onApproveSuggestion,
   isAdmin,
-  adminPin,
+  adminToken,
   isUpvoted = false,
   isMyPost = false,
 }) => {
@@ -89,7 +91,12 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     if (isAdmin) {
       setIsUnlocked(true);
       setUnlockedSuggestion(suggestion);
-      fetch(`/api/suggestions/${suggestion.id}?isAdmin=true&adminPin=${adminPin}`)
+      const headers: Record<string, string> = {};
+      if (adminToken) {
+        headers['Authorization'] = `Bearer ${adminToken}`;
+        headers['x-admin-token'] = adminToken;
+      }
+      fetch(`/api/suggestions/${suggestion.id}`, { headers })
         .then((res) => res.json())
         .then((data) => {
           if (data && !data.error) {
@@ -115,7 +122,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
       setIsUnlocked(true);
       setUnlockedSuggestion(suggestion);
     }
-  }, [suggestion?.id, isOpen, isAdmin, adminPin]);
+  }, [suggestion?.id, isOpen, isAdmin, adminToken]);
 
   // Sync unlockedSuggestion when suggestion prop updates (e.g. new comments, upvotes, status)
   useEffect(() => {
@@ -148,7 +155,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     let unmaskedData: Suggestion | null = null;
 
     // 1. Direct local verify check (Works offline, Netlify static, and all browsers)
-    if (verifySuggestionPin(suggestion, typedPin, adminPin)) {
+    if (verifySuggestionPin(suggestion, typedPin)) {
       verified = true;
       unmaskedData = suggestion;
     }
@@ -156,9 +163,14 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
     // 2. Try server API verify-pin if local check didn't immediately match
     if (!verified) {
       try {
+        const verifyHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (adminToken) {
+          verifyHeaders['Authorization'] = `Bearer ${adminToken}`;
+          verifyHeaders['x-admin-token'] = adminToken;
+        }
         const res = await fetch(`/api/suggestions/${suggestion.id}/verify-pin`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: verifyHeaders,
           body: JSON.stringify({ pin: typedPin }),
         });
         if (res.ok) {
@@ -214,10 +226,7 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
   };
 
   const handleDelete = () => {
-    if (confirm('정말로 이 건의사항을 삭제하시겠습니까?')) {
-      onDeleteSuggestion(activeSuggestion.id, pinInput || adminPin);
-      onClose();
-    }
+    onDeleteSuggestion(activeSuggestion.id, pinInput);
   };
 
   const statusInfo = STATUS_CONFIG[activeSuggestion.status];
@@ -255,14 +264,14 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
-            {/* Author or Admin Delete Button */}
-            {(isMyPost || isAdmin) && (
+            {/* Admin-only Delete Button */}
+            {isAdmin && (
               <button
                 id="btn-delete-suggestion-header"
                 type="button"
                 onClick={handleDelete}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
-                title="내가 올린 건의글 삭제하기"
+                title="관리자 권한으로 건의글 삭제하기"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>삭제</span>
@@ -332,6 +341,35 @@ export const SuggestionDetailModal: React.FC<SuggestionDetailModalProps> = ({
                     <span>[관리자 모드] 비속어 필터 검열 해제 (원본 표시 중)</span>
                   </div>
                 )}
+
+                {/* Pending Approval Status Alert for Admin or Author */}
+                {(activeSuggestion.status === 'PENDING_APPROVAL' || activeSuggestion.isApproved === false) && (
+                  <div className="mb-4 bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-2.5">
+                      <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-amber-950">
+                          {isAdmin ? '⚠️ 승인 대기 건의글 (현재 일반 학우에게 비공개)' : '⏳ 학생회 검토 및 승인 대기 중'}
+                        </p>
+                        <p className="text-[11px] text-amber-800">
+                          {isAdmin
+                            ? '학생회 관리자가 검토 후 [통과]를 누르면 전체 공개 게시판에 등록됩니다.'
+                            : '작성하신 건의글은 관리자 승인 후 모든 학우가 볼 수 있는 게시판에 등록됩니다.'}
+                        </p>
+                      </div>
+                    </div>
+                    {isAdmin && onApproveSuggestion && (
+                      <button
+                        onClick={() => onApproveSuggestion(activeSuggestion.id)}
+                        className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all shrink-0 active:scale-95"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>✨ 통과 (게시판 공개 승인)</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug mb-3">
                   {isAdmin
                     ? (stripMetadataMarkers(activeSuggestion.title) || '제목 없음')

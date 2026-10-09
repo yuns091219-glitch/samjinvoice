@@ -21,13 +21,13 @@ import { SuggestionDetailModal } from './components/SuggestionDetailModal';
 import { SuggestionFormModal } from './components/SuggestionFormModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { NoticeModal } from './components/NoticeModal';
-import { MaintenanceScreen } from './components/MaintenanceScreen';
-import { MessageSquare, RefreshCw, AlertCircle, ShieldCheck, Lock, Search, Key, CheckCircle2, Wrench } from 'lucide-react';
+import { MessageSquare, RefreshCw, AlertCircle, ShieldCheck, Lock, Search, Key, CheckCircle2, Trash2, X } from 'lucide-react';
 import {
   fetchSuggestionsFromSupabase,
   insertSuggestionToSupabase,
   incrementLikesInSupabase,
   updateStatusInSupabase,
+  approveSuggestionInSupabase,
   deleteSuggestionFromSupabase,
   addCommentToSupabase,
   deleteCommentFromSupabase,
@@ -92,31 +92,65 @@ export default function App() {
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminPin, setAdminPin] = useState('20ghdaudqh02');
-
-  // Site Maintenance Mode (Default: true for current maintenance)
-  const [isMaintenanceMode, setIsMaintenanceMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('samjin_maintenance_mode');
-    return saved !== null ? saved === 'true' : true;
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    try {
+      return Boolean(sessionStorage.getItem('samjin_admin_token'));
+    } catch {
+      return false;
+    }
+  });
+  const [adminToken, setAdminToken] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('samjin_admin_token');
+    } catch {
+      return null;
+    }
   });
 
-  const toggleMaintenanceMode = (enabled?: boolean) => {
-    const nextVal = enabled !== undefined ? enabled : !isMaintenanceMode;
-    setIsMaintenanceMode(nextVal);
-    localStorage.setItem('samjin_maintenance_mode', String(nextVal));
-    showToast(
-      nextVal
-        ? '🛠️ 사이트 점검 모드가 활성화되었습니다. (일반 학생 접근 차단)'
-        : '✨ 사이트 점검 모드가 해제되어 일반 학생 접근이 가능합니다.'
-    );
-  };
+  // Verify stored session token with backend on mount
+  useEffect(() => {
+    if (adminToken) {
+      fetch('/api/admin/verify', {
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          'x-admin-token': adminToken,
+        },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (!data.isAdmin) {
+            setIsAdmin(false);
+            setAdminToken(null);
+            try {
+              sessionStorage.removeItem('samjin_admin_token');
+            } catch {}
+          } else {
+            setIsAdmin(true);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [adminToken]);
 
   // Student Self-Lookup state
   const [lookupId, setLookupId] = useState('');
   const [lookupPin, setLookupPin] = useState('');
   const [lookupResult, setLookupResult] = useState<Suggestion | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
+
+  // In-app Delete Confirmation Modal State (Reliable across all browsers and iframes)
+  interface DeleteTarget {
+    type: 'suggestion' | 'comment';
+    id: string; // suggestionId
+    commentId?: string;
+    title: string;
+    isSecret: boolean;
+    savedPin?: string;
+  }
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deletePinInput, setDeletePinInput] = useState('');
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Toast feedback
   const [toast, setToast] = useState<string | null>(null);
@@ -154,17 +188,15 @@ export default function App() {
   };
 
   const getAdminHeaders = (): Record<string, string> => {
-    if (!isAdmin) return {};
+    if (!isAdmin || !adminToken) return {};
     return {
-      'x-admin-token': adminPin || '20ghdaudqh02',
-      'x-admin-pin': adminPin || '20ghdaudqh02',
-      'x-is-admin': 'true',
+      'Authorization': `Bearer ${adminToken}`,
+      'x-admin-token': adminToken,
     };
   };
 
   const getAdminQuery = (): string => {
-    if (!isAdmin) return '';
-    return `?isAdmin=true&adminPin=${encodeURIComponent(adminPin || '20ghdaudqh02')}`;
+    return '';
   };
 
   // Fetch initial suggestions from Express API or direct Supabase client
@@ -176,13 +208,7 @@ export default function App() {
 
       // 1. Try Express server API
       try {
-        const queryParams = new URLSearchParams();
-        if (isAdmin) {
-          queryParams.append('isAdmin', 'true');
-          if (adminPin) queryParams.append('adminPin', adminPin);
-        }
-        const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
-        const res = await fetch(`/api/suggestions${queryString}`, {
+        const res = await fetch(`/api/suggestions`, {
           headers: getAdminHeaders(),
         });
         if (res.ok) {
@@ -359,7 +385,7 @@ export default function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isAdmin, adminPin]);
+  }, [isAdmin, adminToken]);
 
   // Derived filtered & sorted list of suggestions
   const filteredSuggestions = useMemo(() => {
@@ -421,6 +447,14 @@ export default function App() {
         };
       })
       .filter((s) => {
+        // Non-admin public view: hide unapproved suggestions unless it is the student's own post
+        if (!isAdmin) {
+          const isPending = s.status === 'PENDING_APPROVAL' || s.isApproved === false;
+          if (isPending && !isMyPost(s)) {
+            return false;
+          }
+        }
+
         if (selectedCategory !== 'ALL') {
           const catNorm = normalizeCategory(s.category);
           const selNorm = normalizeCategory(selectedCategory);
@@ -473,6 +507,7 @@ export default function App() {
       OTHER: 0,
     };
 
+    let pendingApprovalCount = 0;
     let receivedCount = 0;
     let inReviewCount = 0;
     let answeredCount = 0;
@@ -486,7 +521,8 @@ export default function App() {
       if (categoryCounts[cat] !== undefined) {
         categoryCounts[cat] += 1;
       }
-      if (s.status === 'RECEIVED') receivedCount++;
+      if (s.status === 'PENDING_APPROVAL' || s.isApproved === false) pendingApprovalCount++;
+      else if (s.status === 'RECEIVED') receivedCount++;
       else if (s.status === 'IN_REVIEW') inReviewCount++;
       else if (s.status === 'ANSWERED') answeredCount++;
       else if (s.status === 'APPLIED') appliedCount++;
@@ -504,6 +540,7 @@ export default function App() {
 
     return {
       totalSuggestions: suggestions.length,
+      pendingApprovalCount,
       receivedCount,
       inReviewCount,
       answeredCount,
@@ -727,10 +764,25 @@ export default function App() {
     showToast('💬 댓글이 작성되었습니다.');
   };
 
-  // Delete Comment Handler (Admin)
-  const handleDeleteComment = async (suggestionId: string, commentId: string) => {
-    if (!confirm('이 댓글을 삭제하시겠습니까?')) return;
+  // Request Delete Comment (Opens in-app confirmation modal without relying on browser confirm)
+  const requestDeleteComment = (suggestionId: string, commentId: string) => {
+    const parentSuggestion = suggestions.find((s) => String(s.id) === String(suggestionId));
+    const targetComment = parentSuggestion?.comments?.find((c) => String(c.id) === String(commentId));
+    const previewText = targetComment?.content ? `"${targetComment.content.slice(0, 30)}..."` : '선택한 댓글';
 
+    setDeleteTarget({
+      type: 'comment',
+      id: suggestionId,
+      commentId,
+      title: previewText,
+      isSecret: false,
+    });
+    setDeletePinInput('');
+    setDeleteError(null);
+  };
+
+  // Execute Delete Comment
+  const executeDeleteComment = async (suggestionId: string, commentId: string) => {
     setSuggestions((prev) => {
       const next = prev.map((s) => {
         if (s.id === suggestionId) {
@@ -777,6 +829,11 @@ export default function App() {
     showToast('🗑️ 댓글이 삭제되었습니다.');
   };
 
+  // Legacy / Direct handler
+  const handleDeleteComment = async (suggestionId: string, commentId: string) => {
+    requestDeleteComment(suggestionId, commentId);
+  };
+
   // Status & Official Response Update Handler
   const handleUpdateStatus = async (
     id: string,
@@ -795,8 +852,6 @@ export default function App() {
         headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
         body: JSON.stringify({
           status,
-          adminPin: adminPin || '20ghdaudqh02',
-          isAdmin: true,
           officialResponse: responseContent
             ? {
                 authorName: cleanAuthor,
@@ -911,7 +966,11 @@ export default function App() {
     // 2. Direct Supabase insert if backend API is not present or failed
     if (!createdPost) {
       try {
-        createdPost = await insertSuggestionToSupabase(formData);
+        createdPost = await insertSuggestionToSupabase({
+          ...formData,
+          isApproved: false,
+          status: 'PENDING_APPROVAL',
+        });
       } catch (sbErr) {
         console.warn('Direct Supabase insert error:', sbErr);
       }
@@ -927,7 +986,8 @@ export default function App() {
         authorNickname: formData.authorNickname.trim() || '익명의 삼진인',
         isSecret: formData.isSecret,
         secretPin: formData.secretPin,
-        status: 'RECEIVED',
+        status: 'PENDING_APPROVAL',
+        isApproved: false,
         upvotes: 0,
         tags: formData.tags.length > 0 ? formData.tags : ['#마산삼진고', '#건의사항'],
         comments: [],
@@ -940,6 +1000,8 @@ export default function App() {
       createdPost.category = formData.category || createdPost.category;
       createdPost.authorNickname = formData.authorNickname.trim() || createdPost.authorNickname || '익명의 삼진인';
       createdPost.isSecret = formData.isSecret || createdPost.isSecret;
+      createdPost.status = 'PENDING_APPROVAL';
+      createdPost.isApproved = false;
       createdPost.tags = formData.tags && formData.tags.length > 0 ? formData.tags : (createdPost.tags && createdPost.tags.length > 0 ? createdPost.tags : ['#마산삼진고', '#건의사항']);
       if (formData.secretPin) {
         createdPost.secretPin = formData.secretPin;
@@ -966,19 +1028,97 @@ export default function App() {
     }
 
     setSuggestions((prev) => [createdPost!, ...prev]);
-    showToast('🎉 새로운 익명 건의사항이 정상 등록되었습니다!');
+    showToast('📝 건의가 접수되었습니다! 관리자(학생회) 검토 및 승인 후 공개 게시판에 등록됩니다.');
   };
 
-  // Delete Suggestion Handler
-  const handleDeleteSuggestion = async (id: string, pin?: string) => {
+  // Approve Suggestion Handler (Admin Action)
+  const handleApproveSuggestion = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+
+    try {
+      // 1. Try Express backend API
+      try {
+        await fetch(`/api/suggestions/${id}/approve`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
+        });
+      } catch (apiErr) {
+        console.warn('Express API approve failed, falling back:', apiErr);
+      }
+
+      // 2. Direct Supabase update
+      try {
+        await approveSuggestionInSupabase(id);
+      } catch (sbErr) {
+        console.warn('Supabase approve direct failed:', sbErr);
+      }
+
+      // 3. Update state
+      setSuggestions((prev) =>
+        prev.map((s) => {
+          if (String(s.id) === String(id)) {
+            return {
+              ...s,
+              status: 'RECEIVED',
+              isApproved: true,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return s;
+        })
+      );
+
+      if (selectedSuggestion && String(selectedSuggestion.id) === String(id)) {
+        setSelectedSuggestion((prev) =>
+          prev ? { ...prev, status: 'RECEIVED', isApproved: true } : null
+        );
+      }
+
+      showToast('✨ 건의글이 통과(승인)되어 전체 공개 게시판에 등록되었습니다!');
+    } catch (err) {
+      console.error('Error approving suggestion:', err);
+      showToast('건의글 승인 처리 중 오류가 발생했습니다.');
+    }
+  };
+
+  // Request Delete Suggestion (Admin-only in-app confirmation modal)
+  const requestDeleteSuggestion = (id: string, initialPin?: string) => {
+    if (!isAdmin) {
+      showToast('🔒 건의글 삭제는 학생회 관리자만 가능합니다.');
+      return;
+    }
+
+    const found = suggestions.find((s) => String(s.id) === String(id));
+    const title = found?.title ? stripMetadataMarkers(found.title) : '선택한 건의글';
+    const isSecret = found ? (found.isSecret || isSecretSuggestion(found)) : false;
+    const savedPin = initialPin || localStorage.getItem(`samjin_pin_${id}`) || '';
+
+    setDeleteTarget({
+      type: 'suggestion',
+      id: String(id),
+      title,
+      isSecret,
+      savedPin,
+    });
+    setDeletePinInput(savedPin);
+    setDeleteError(null);
+  };
+
+  // Execute Delete Suggestion Handler (Admin Only)
+  const executeDeleteSuggestion = async (id: string, pin?: string): Promise<boolean> => {
+    if (!isAdmin) {
+      showToast('🔒 건의글 삭제는 학생회 관리자만 가능합니다.');
+      return false;
+    }
+
     let deletedSuccess = false;
     const effectivePin = pin || localStorage.getItem(`samjin_pin_${id}`) || undefined;
 
     try {
       const res = await fetch(`/api/suggestions/${id}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: effectivePin, adminPin }),
+        headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
+        body: JSON.stringify({ pin: effectivePin }),
       });
 
       if (res.ok) {
@@ -986,8 +1126,8 @@ export default function App() {
       } else {
         const data = await res.json().catch(() => ({}));
         if (res.status === 401 || res.status === 403) {
-          showToast(`❌ ${data.error || '권한이 없거나 비밀번호가 올바르지 않습니다.'}`);
-          return;
+          showToast(`❌ ${data.error || '삭제 권한이 없습니다. 관리자 로그인을 확인해주세요.'}`);
+          return false;
         }
       }
     } catch (err) {
@@ -1027,6 +1167,49 @@ export default function App() {
         setSelectedSuggestion(null);
       }
       showToast('🗑️ 건의글이 삭제되었습니다.');
+      return true;
+    } else {
+      showToast('❌ 게시글 삭제 중 오류가 발생했습니다. 관리자 로그인 상태를 확인해주세요.');
+      return false;
+    }
+  };
+
+  // Legacy / Direct handler: checks admin first
+  const handleDeleteSuggestion = (id: string, pin?: string) => {
+    if (!isAdmin) {
+      showToast('🔒 건의글 삭제는 학생회 관리자만 가능합니다.');
+      return;
+    }
+    requestDeleteSuggestion(id, pin);
+  };
+
+  // Confirm execution from Delete Modal
+  const handleConfirmDeleteModal = async () => {
+    if (!deleteTarget) return;
+    setDeleteSubmitting(true);
+    setDeleteError(null);
+
+    try {
+      if (deleteTarget.type === 'comment' && deleteTarget.commentId) {
+        await executeDeleteComment(deleteTarget.id, deleteTarget.commentId);
+        setDeleteTarget(null);
+        return;
+      }
+
+      // Suggestion delete (Admin only)
+      if (!isAdmin) {
+        setDeleteError('건의글 삭제는 관리자만 가능합니다.');
+        return;
+      }
+
+      const success = await executeDeleteSuggestion(deleteTarget.id);
+      if (success) {
+        setDeleteTarget(null);
+      } else {
+        setDeleteError('삭제에 실패했습니다. 관리자 세션이 만료되었거나 권한이 없습니다.');
+      }
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -1058,14 +1241,14 @@ export default function App() {
         setLookupError('비밀글 조회를 위해 비밀번호(PIN 4자리)를 입력해주세요.');
         return;
       }
-      let verified = verifySuggestionPin(found, lookupPin.trim(), adminPin);
+      let verified = verifySuggestionPin(found, lookupPin.trim());
       let unmaskedSuggestion: Suggestion | null = null;
 
       if (!verified) {
         try {
           const res = await fetch(`/api/suggestions/${found.id}/verify-pin`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...getAdminHeaders() },
             body: JSON.stringify({ pin: lookupPin.trim() }),
           });
           if (res.ok) {
@@ -1096,35 +1279,59 @@ export default function App() {
     setSelectedSuggestion(found);
   };
 
-  // Admin Login
-  const handleLoginAdmin = (pin: string) => {
-    if (pin === '20ghdaudqh02') {
-      setIsAdmin(true);
-      setAdminPin(pin);
-      showToast('🛡️ 관리자 모드 활성화: 모든 게시물의 비속어 필터(검열)가 자동으로 해제되었습니다.');
-      return true;
+  // Admin Login (Secure server-side authentication: PIN is never exposed in client source code)
+  const handleLoginAdmin = async (pin: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pin.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.token) {
+        setIsAdmin(true);
+        setAdminToken(data.token);
+        try {
+          sessionStorage.setItem('samjin_admin_token', data.token);
+        } catch {}
+        showToast('🛡️ 관리자(학생회) 모드 활성화: 심사 대기 건의 검토 및 전체 관리가 가능합니다.');
+        setTimeout(() => {
+          fetchSuggestions();
+        }, 100);
+        return true;
+      } else {
+        showToast(data.error || '관리자 비밀번호가 올바르지 않습니다.');
+        return false;
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      showToast('서버 통신 중 오류가 발생했습니다.');
+      return false;
     }
-    return false;
   };
 
-  const handleLogoutAdmin = () => {
+  const handleLogoutAdmin = async () => {
+    if (adminToken) {
+      try {
+        await fetch('/api/admin/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${adminToken}`,
+            'x-admin-token': adminToken,
+          },
+        });
+      } catch {}
+    }
     setIsAdmin(false);
-    showToast('🔒 일반 모드 전환: 모든 게시물에 비속어 필터(검열)가 다시 적용되었습니다.');
+    setAdminToken(null);
+    try {
+      sessionStorage.removeItem('samjin_admin_token');
+    } catch {}
+    showToast('🔒 일반 모드 전환: 관리자 세션이 안전하게 종료되었습니다.');
+    setTimeout(() => {
+      fetchSuggestions();
+    }, 100);
   };
-
-  if (isMaintenanceMode && !isAdmin) {
-    return (
-      <>
-        {toast && (
-          <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 z-50 bg-[#2D2926] text-white text-xs sm:text-sm font-bold px-4 py-3 rounded-2xl shadow-xl border border-[#4A443F] flex items-center justify-center sm:justify-start space-x-2 animate-in fade-in slide-in-from-bottom-5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{toast}</span>
-          </div>
-        )}
-        <MaintenanceScreen onAdminLogin={handleLoginAdmin} isAdmin={isAdmin} />
-      </>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#FDFCF9] text-[#2D2926] flex flex-col font-sans selection:bg-[#5F7161]/20">
@@ -1134,31 +1341,6 @@ export default function App() {
         <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 z-50 bg-[#2D2926] text-white text-xs sm:text-sm font-bold px-4 py-3 rounded-2xl shadow-xl border border-[#4A443F] flex items-center justify-center sm:justify-start space-x-2 animate-in fade-in slide-in-from-bottom-5">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toast}</span>
-        </div>
-      )}
-
-      {/* Admin Maintenance Mode Warning Banner */}
-      {isMaintenanceMode && isAdmin && (
-        <div className="bg-amber-600 text-white text-xs font-bold px-4 py-2.5 shadow-md sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="bg-amber-800 text-amber-100 text-[10px] px-2 py-0.5 rounded font-black tracking-wider uppercase flex items-center gap-1">
-                <Wrench className="w-3 h-3" />
-                점검 모드 작동 중
-              </span>
-              <span className="text-white text-xs">
-                현재 일반 학생들에게는 <strong>시스템 점검 안내 페이지</strong>가 노출되고 있습니다. (관리자 권한으로 진입함)
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => toggleMaintenanceMode(false)}
-                className="bg-white hover:bg-amber-50 text-amber-900 font-extrabold px-3 py-1 rounded-lg text-xs transition-colors shadow-2xs"
-              >
-                ✨ 점검 해제 (정상 운영 재개)
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1256,21 +1438,49 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
-              {filteredSuggestions.map((suggestion) => (
-                <SuggestionCard
-                  key={suggestion.id}
-                  suggestion={suggestion}
-                  onSelectCard={(s) => setSelectedSuggestion(s)}
-                  onUpvote={handleUpvote}
-                  onTagClick={(tag) => setSearchQuery(tag)}
-                  onDeleteSuggestion={handleDeleteSuggestion}
-                  isUpvoted={upvotedIds.includes(suggestion.id)}
-                  isAdmin={isAdmin}
-                  isMyPost={isMyPost(suggestion)}
-                />
-              ))}
-            </div>
+            <>
+              {/* Admin Pending Review Banner */}
+              {isAdmin && stats.pendingApprovalCount > 0 && (
+                <div className="mb-4 bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs animate-in fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+                      심사
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-950">
+                        현재 승인 대기 중인 학생 건의가 <span className="text-amber-700 underline font-extrabold">{stats.pendingApprovalCount}건</span> 있습니다.
+                      </h4>
+                      <p className="text-[11px] text-amber-800">
+                        학생회 관리자 검토 후 [통과]를 누르면 모든 학우에게 공개 게시판에 등록됩니다.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsAdminDashboardOpen(true)}
+                    className="w-full sm:w-auto px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 active:scale-95"
+                  >
+                    대시보드 승인 대기함 열기 →
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
+                {filteredSuggestions.map((suggestion) => (
+                  <SuggestionCard
+                    key={suggestion.id}
+                    suggestion={suggestion}
+                    onSelectCard={(s) => setSelectedSuggestion(s)}
+                    onUpvote={handleUpvote}
+                    onTagClick={(tag) => setSearchQuery(tag)}
+                    onDeleteSuggestion={handleDeleteSuggestion}
+                    onApproveSuggestion={handleApproveSuggestion}
+                    isUpvoted={upvotedIds.includes(suggestion.id)}
+                    isAdmin={isAdmin}
+                    isMyPost={isMyPost(suggestion)}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
 
@@ -1286,8 +1496,9 @@ export default function App() {
         onDeleteComment={handleDeleteComment}
         onUpdateStatus={handleUpdateStatus}
         onDeleteSuggestion={handleDeleteSuggestion}
+        onApproveSuggestion={handleApproveSuggestion}
         isAdmin={isAdmin}
-        adminPin={adminPin}
+        adminToken={adminToken}
         isUpvoted={selectedSuggestion ? upvotedIds.includes(selectedSuggestion.id) : false}
         isMyPost={selectedSuggestion ? isMyPost(selectedSuggestion) : false}
       />
@@ -1306,10 +1517,11 @@ export default function App() {
         suggestions={suggestions}
         stats={stats}
         isAdmin={isAdmin}
+        adminToken={adminToken}
         onLoginAdmin={handleLoginAdmin}
         onLogoutAdmin={handleLogoutAdmin}
-        isMaintenanceMode={isMaintenanceMode}
-        onToggleMaintenanceMode={toggleMaintenanceMode}
+        onApproveSuggestion={handleApproveSuggestion}
+        onDeleteSuggestion={handleDeleteSuggestion}
         onSelectSuggestion={(s) => {
           setIsAdminDashboardOpen(false);
           setSelectedSuggestion(s);
@@ -1322,6 +1534,93 @@ export default function App() {
         isOpen={Boolean(selectedNotice)}
         onClose={() => setSelectedNotice(null)}
       />
+
+      {/* Custom In-App Delete Confirmation Modal (100% reliable in iframes & mobiles without window.confirm) */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    {deleteTarget.type === 'comment' ? '댓글 삭제 확인' : '건의글 삭제 확인'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    삭제 후에는 복구할 수 없습니다
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+              <p className="text-xs text-slate-500 mb-1 font-medium">
+                {deleteTarget.type === 'comment' ? '삭제 대상 댓글' : '삭제 대상 건의글'}
+              </p>
+              <p className="text-sm font-bold text-slate-800 break-words line-clamp-2">
+                {deleteTarget.title}
+              </p>
+            </div>
+
+            {/* Admin Delete Notice */}
+            {deleteTarget.type === 'suggestion' && (
+              <div className="p-3.5 bg-rose-50/80 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                <div>
+                  <span className="font-bold">학생회 관리자 전용 삭제</span>
+                  <p className="text-[11px] text-rose-700 mt-0.5 leading-relaxed">
+                    선택하신 건의글은 관리자 권한으로 데이터베이스에서 즉시 영구 삭제 처리됩니다.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {deleteError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteSubmitting}
+                className="flex-1 py-3 px-4 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteModal}
+                disabled={deleteSubmitting}
+                className="flex-1 py-3 px-4 rounded-xl text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/20 active:scale-98 transition-all flex items-center justify-center gap-1.5"
+              >
+                {deleteSubmitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>삭제 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>삭제하기</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="bg-[#F4F1EA] text-[#8C8479] text-xs py-8 border-t border-[#E6E2D3] mt-12">

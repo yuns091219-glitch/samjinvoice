@@ -29,16 +29,20 @@ export const supabase = createClient(supabaseUrl, rawKey);
  */
 const mapStatusFromDB = (dbStatus?: string): Status => {
   if (!dbStatus) return 'RECEIVED';
+  if (dbStatus === '승인대기' || dbStatus === 'PENDING_APPROVAL' || dbStatus === '심사대기' || dbStatus === '심사중') return 'PENDING_APPROVAL';
   if (dbStatus === '접수중' || dbStatus === 'RECEIVED') return 'RECEIVED';
   if (dbStatus === '검토중' || dbStatus === 'IN_REVIEW') return 'IN_REVIEW';
   if (dbStatus === '답변완료' || dbStatus === 'ANSWERED') return 'ANSWERED';
   if (dbStatus === '반영완료' || dbStatus === 'APPLIED') return 'APPLIED';
   if (dbStatus === '보류' || dbStatus === 'ON_HOLD') return 'ON_HOLD';
+  if (dbStatus === '반려' || dbStatus === 'REJECTED') return 'REJECTED';
   return 'RECEIVED';
 };
 
 const mapStatusToDB = (status: Status): string => {
   switch (status) {
+    case 'PENDING_APPROVAL':
+      return '승인대기';
     case 'RECEIVED':
       return '접수중';
     case 'IN_REVIEW':
@@ -49,6 +53,8 @@ const mapStatusToDB = (status: Status): string => {
       return '반영완료';
     case 'ON_HOLD':
       return '보류';
+    case 'REJECTED':
+      return '반려';
     default:
       return '접수중';
   }
@@ -183,6 +189,12 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
         }
       : undefined);
 
+  const dbStatus = mapStatusFromDB(row.status);
+  const isApproved = extracted.isApproved !== undefined 
+    ? extracted.isApproved 
+    : (dbStatus !== 'PENDING_APPROVAL' && row.is_approved !== false);
+  const effectiveStatus = isApproved === false ? 'PENDING_APPROVAL' : dbStatus;
+
   return {
     id: String(row.id),
     category: resolvedCategory,
@@ -192,7 +204,8 @@ export const mapRowToSuggestion = (row: any): Suggestion => {
     isSecret,
     secretPin: finalPin || undefined,
     upvotes: Number(row.likes ?? row.upvotes ?? 0),
-    status: mapStatusFromDB(row.status),
+    status: effectiveStatus,
+    isApproved,
     tags: finalTags,
     imageUrl: row.image_url || undefined,
     createdAt: row.created_at || new Date().toISOString(),
@@ -258,16 +271,10 @@ export const fetchSuggestionsFromSupabase = async (): Promise<Suggestion[]> => {
  */
 export const verifySuggestionPin = (
   suggestion: Suggestion,
-  enteredPin: string,
-  adminPin: string = 'skwkclqnwkd12'
+  enteredPin: string
 ): boolean => {
   const cleanPin = String(enteredPin || '').trim();
   if (!cleanPin) return false;
-
-  // Master admin password bypass
-  if (cleanPin === 'skwkclqnwkd12' || (adminPin && cleanPin === adminPin.trim())) {
-    return true;
-  }
 
   // Match against post's own 4-digit PIN
   const targetPin = suggestion.secretPin ? String(suggestion.secretPin).trim() : '';
@@ -289,6 +296,8 @@ export const insertSuggestionToSupabase = async (payload: {
   authorNickname: string;
   tags?: string[];
   secretPin?: string;
+  isApproved?: boolean;
+  status?: Status;
 }): Promise<Suggestion> => {
   const authorName = payload.authorNickname.trim() || '익명의 삼진인';
   let tagsList = Array.isArray(payload.tags) && payload.tags.length > 0
@@ -300,6 +309,10 @@ export const insertSuggestionToSupabase = async (payload: {
   }
 
   const pin = payload.secretPin?.trim() || null;
+  const isApproved = payload.isApproved !== undefined ? payload.isApproved : false;
+  const initialStatus: Status = payload.status || (isApproved ? 'RECEIVED' : 'PENDING_APPROVAL');
+  const dbStatusStr = mapStatusToDB(initialStatus);
+
   const rawClean = stripMetadataMarkers(payload.content);
   const rawTitleClean = stripMetadataMarkers(payload.title);
 
@@ -308,8 +321,9 @@ export const insertSuggestionToSupabase = async (payload: {
   const authorTag = `[AUTHOR:${authorName}]`;
   const tagsTag = `[TAGS:${tagsList.join(',')}]`;
   const secretTag = payload.isSecret ? `[SECRET_POST:${pin || ''}]` : '';
+  const approvalTag = isApproved ? `[APPROVAL:APPROVED]` : `[APPROVAL:PENDING]`;
 
-  const cleanContent = `${secretTag}${categoryTag}${authorTag}${tagsTag} ${rawClean}`.trim();
+  const cleanContent = `${secretTag}${categoryTag}${authorTag}${tagsTag}${approvalTag} ${rawClean}`.trim();
 
   // Try multiple variant payloads to match whichever column names exist in the remote Supabase table
   const insertVariants = [
@@ -325,7 +339,7 @@ export const insertSuggestionToSupabase = async (payload: {
       nickname: authorName,
       writer: authorName,
       likes: 0,
-      status: '접수중',
+      status: dbStatusStr,
       secret_pin: pin,
       tags: tagsList,
     },
@@ -337,7 +351,7 @@ export const insertSuggestionToSupabase = async (payload: {
       is_secret: payload.isSecret,
       author_nickname: authorName,
       likes: 0,
-      status: '접수중',
+      status: dbStatusStr,
       secret_pin: pin,
       tags: tagsList.join(','),
     },
@@ -348,7 +362,7 @@ export const insertSuggestionToSupabase = async (payload: {
       is_secret: payload.isSecret,
       author_nickname: authorName,
       likes: 0,
-      status: '접수중',
+      status: dbStatusStr,
       secret_pin: pin,
       tags: tagsList,
     },
@@ -359,7 +373,7 @@ export const insertSuggestionToSupabase = async (payload: {
       is_secret: payload.isSecret,
       author_name: authorName,
       likes: 0,
-      status: '접수중',
+      status: dbStatusStr,
       secret_pin: pin,
       tags: tagsList,
     },
@@ -369,21 +383,21 @@ export const insertSuggestionToSupabase = async (payload: {
       category: payload.category,
       author_name: authorName,
       author_nickname: authorName,
-      status: '접수중',
+      status: dbStatusStr,
       tags: tagsList,
     },
     {
       title: rawTitleClean,
       content: cleanContent,
       category: payload.category,
-      status: '접수중',
+      status: dbStatusStr,
       tags: tagsList,
     },
     {
       title: rawTitleClean,
       content: cleanContent,
       category: payload.category,
-      status: '접수중',
+      status: dbStatusStr,
     },
     {
       title: rawTitleClean,
@@ -807,9 +821,91 @@ export const updateStatusInSupabase = async (
  * Delete suggestion from Supabase
  */
 export const deleteSuggestionFromSupabase = async (id: string): Promise<void> => {
-  const { error } = await supabase.from('suggestions').delete().eq('id', id);
+  const numericId = Number(id);
+  const targetId = !isNaN(numericId) && String(numericId) === String(id).trim() ? numericId : id;
+  const { error } = await supabase.from('suggestions').delete().eq('id', targetId);
   if (error) {
     console.error('Supabase delete error:', error);
+    if (typeof targetId === 'number') {
+      const { error: fallbackError } = await supabase.from('suggestions').delete().eq('id', String(id));
+      if (fallbackError) {
+        throw new Error(fallbackError.message);
+      }
+      return;
+    }
     throw new Error(error.message);
   }
 };
+
+/**
+ * Approve suggestion in Supabase (Sets status to RECEIVED and changes [APPROVAL:PENDING] to [APPROVAL:APPROVED])
+ */
+export const approveSuggestionInSupabase = async (id: string): Promise<Suggestion> => {
+  try {
+    const { data: current } = await supabase
+      .from('suggestions')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    let newContent: string | undefined;
+    if (current && current.content) {
+      if (current.content.includes('[APPROVAL:PENDING]')) {
+        newContent = current.content.replace(/\[APPROVAL:PENDING\]/gi, '[APPROVAL:APPROVED]');
+      } else if (!current.content.includes('[APPROVAL:APPROVED]')) {
+        newContent = `[APPROVAL:APPROVED] ${current.content}`.trim();
+      }
+    }
+
+    // Try update with is_approved and status
+    try {
+      const { data, error } = await supabase
+        .from('suggestions')
+        .update({
+          status: '접수중',
+          is_approved: true,
+          content: newContent || undefined,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (!error && data) {
+        const mapped = mapRowToSuggestion(data);
+        mapped.status = 'RECEIVED';
+        mapped.isApproved = true;
+        return mapped;
+      }
+    } catch {}
+
+    // Variant 2: status and content only
+    try {
+      const { data, error } = await supabase
+        .from('suggestions')
+        .update({
+          status: '접수중',
+          content: newContent || undefined,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (!error && data) {
+        const mapped = mapRowToSuggestion(data);
+        mapped.status = 'RECEIVED';
+        mapped.isApproved = true;
+        return mapped;
+      }
+    } catch {}
+
+    // Fallback: normal updateStatus
+    const updated = await updateStatusInSupabase(id, 'RECEIVED');
+    updated.isApproved = true;
+    updated.status = 'RECEIVED';
+    return updated;
+  } catch (err: any) {
+    console.error('Error in approveSuggestionInSupabase:', err);
+    throw err;
+  }
+};
+

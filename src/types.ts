@@ -28,6 +28,7 @@ export interface ExtractedMetadata {
   comments?: Comment[];
   officialResponse?: OfficialResponse;
   isSecret?: boolean;
+  isApproved?: boolean;
 }
 
 /**
@@ -42,6 +43,7 @@ export const stripMetadataMarkers = (text?: string): string => {
     .replace(/\[TAGS:[^\]]+\]\s*/gi, '')
     .replace(/\[COMMENTS:[^\]]+\]\s*/gi, '')
     .replace(/\[OFFICIAL_RESPONSE:[^\]]+\]\s*/gi, '')
+    .replace(/\[APPROVAL:[^\]]+\]\s*/gi, '')
     .trim();
 };
 
@@ -56,6 +58,7 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
   let comments: Comment[] | undefined;
   let officialResponse: OfficialResponse | undefined;
   let isSecret = false;
+  let isApproved: boolean | undefined;
 
   // 1. PIN
   const pinMatch = contentStr.match(/\[SECRET_POST(?::([^\]]*))?\]/i) || titleStr.match(/\[SECRET_POST(?::([^\]]*))?\]/i);
@@ -121,6 +124,14 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
     }
   }
 
+  // 7. Approval status
+  const approvalMatch = contentStr.match(/\[APPROVAL:([^\]]+)\]/i) || titleStr.match(/\[APPROVAL:([^\]]+)\]/i);
+  if (approvalMatch && approvalMatch[1]) {
+    const val = approvalMatch[1].trim().toUpperCase();
+    if (val === 'APPROVED' || val === 'TRUE') isApproved = true;
+    else if (val === 'PENDING' || val === 'FALSE') isApproved = false;
+  }
+
   const cleanTitle = stripMetadataMarkers(titleStr) || '제목 없음';
   const cleanContent = stripMetadataMarkers(contentStr);
 
@@ -134,15 +145,18 @@ export const extractMetadataFromContent = (rawTitle?: string, rawContent?: strin
     comments,
     officialResponse,
     isSecret,
+    isApproved,
   };
 };
 
 export type Status = 
-  | 'RECEIVED'   // 접수됨 (🟡)
-  | 'IN_REVIEW'  // 검토 중 (🔵)
-  | 'ANSWERED'   // 답변 완료 (🟢)
-  | 'APPLIED'    // 반영 완료 (🟣)
-  | 'ON_HOLD';   // 보류 (⚪)
+  | 'PENDING_APPROVAL' // 승인 대기 (새 등록 시)
+  | 'RECEIVED'         // 접수됨 (승인 완료)
+  | 'IN_REVIEW'        // 검토 중
+  | 'ANSWERED'         // 답변 완료
+  | 'APPLIED'          // 반영 완료
+  | 'ON_HOLD'          // 보류
+  | 'REJECTED';        // 반려
 
 export interface Comment {
   id: string;
@@ -228,6 +242,8 @@ export interface Suggestion {
   secretPin?: string;      // 4-digit PIN to edit/delete/view if secret
   upvotes: number;
   status: Status;
+  isApproved?: boolean;    // false = 승인 대기(관리자만 확인 가능), true = 승인 완료(전체 공개)
+  approvedAt?: string;
   tags: string[];
   imageUrl?: string;
   createdAt: string;
@@ -256,6 +272,7 @@ export interface LunchMenu {
 
 export interface AdminStats {
   totalSuggestions: number;
+  pendingApprovalCount: number;
   receivedCount: number;
   inReviewCount: number;
   answeredCount: number;

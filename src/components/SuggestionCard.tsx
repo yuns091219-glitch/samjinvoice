@@ -26,15 +26,21 @@ interface SuggestionCardProps {
   onUpvote: (id: string, e: React.MouseEvent) => void;
   onTagClick?: (tag: string, e: React.MouseEvent) => void;
   onDeleteSuggestion?: (id: string) => void;
+  onApproveSuggestion?: (id: string, e: React.MouseEvent) => void;
   isUpvoted?: boolean;
   isAdmin?: boolean;
   isMyPost?: boolean;
 }
 
 export const STATUS_CONFIG: Record<Status, { label: string; badgeClass: string; icon: React.ComponentType<{ className?: string }> }> = {
+  PENDING_APPROVAL: {
+    label: '승인 대기',
+    badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
+    icon: Clock,
+  },
   RECEIVED: {
     label: '접수됨',
-    badgeClass: 'bg-amber-100/80 text-amber-900 border-amber-300',
+    badgeClass: 'bg-emerald-100/80 text-emerald-900 border-emerald-300',
     icon: Clock,
   },
   IN_REVIEW: {
@@ -55,6 +61,11 @@ export const STATUS_CONFIG: Record<Status, { label: string; badgeClass: string; 
   ON_HOLD: {
     label: '보류',
     badgeClass: 'bg-[#E6E2D3] text-[#8C8479] border-[#E6E2D3]',
+    icon: AlertCircle,
+  },
+  REJECTED: {
+    label: '반려됨',
+    badgeClass: 'bg-rose-100 text-rose-800 border-rose-300',
     icon: AlertCircle,
   },
 };
@@ -83,6 +94,7 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onUpvote,
   onTagClick,
   onDeleteSuggestion,
+  onApproveSuggestion,
   isUpvoted = false,
   isAdmin = false,
   isMyPost = false,
@@ -123,10 +135,8 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm('작성하신 건의글을 정말로 삭제하시겠습니까?')) {
-      if (onDeleteSuggestion) {
-        onDeleteSuggestion(suggestion.id);
-      }
+    if (onDeleteSuggestion) {
+      onDeleteSuggestion(suggestion.id);
     }
   };
 
@@ -178,19 +188,42 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-[#8C8479] whitespace-nowrap">{formattedDate}</span>
-            {/* Author-only Delete Button on Card */}
-            {(isMyPost || isAdmin) && onDeleteSuggestion && (
+            {/* Admin Direct Approve Button on Card */}
+            {isAdmin && (suggestion.status === 'PENDING_APPROVAL' || suggestion.isApproved === false) && onApproveSuggestion && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onApproveSuggestion(suggestion.id, e);
+                }}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1 active:scale-95 transition-all"
+                title="이 건의를 승인하여 전체 게시판에 공개합니다"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>통과(공개)</span>
+              </button>
+            )}
+            {/* Admin-only Delete Button on Card */}
+            {isAdmin && onDeleteSuggestion && (
               <button
                 type="button"
                 onClick={handleDeleteClick}
                 className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                title="내가 올린 건의글 삭제하기"
+                title="관리자 권한으로 건의글 삭제하기"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
         </div>
+
+        {/* Pending Notice for Author */}
+        {isMyPost && !isAdmin && (suggestion.status === 'PENDING_APPROVAL' || suggestion.isApproved === false) && (
+          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+            <span className="font-medium">현재 학생회 검토 중입니다. 관리자 승인 후 모든 학우에게 공개됩니다.</span>
+          </div>
+        )}
 
         {/* Title */}
         <h3 className="font-bold text-[#2D2926] text-base sm:text-lg group-hover:text-[#5F7161] transition-colors line-clamp-2 mb-2 leading-snug">
