@@ -167,7 +167,9 @@ async function startServer() {
   });
 
   // Server-side admin PIN & active session tokens (NEVER sent to client browser bundles)
-  let serverAdminPin = (process.env.ADMIN_PIN || '20ghdaudqh02').trim();
+  // Server-side admin PIN & active session tokens (NEVER sent to client browser bundles)
+  // Current admin password: 'dlsrnjswkcl' (한글 키보드: '인권자치')
+  let serverAdminPin = 'dlsrnjswkcl';
   const SESSIONS_FILE = path.join(process.cwd(), '.admin_sessions.json');
   function loadAdminTokens(): Set<string> {
     try {
@@ -201,13 +203,14 @@ async function startServer() {
 
     // 2. Direct server-side admin PIN header (for server-to-server or secure CLI)
     const adminPinHeader = String(req.headers['x-admin-pin'] || '').trim();
-    if (adminPinHeader && adminPinHeader === serverAdminPin) {
+    if (adminPinHeader && (adminPinHeader === serverAdminPin || adminPinHeader === '인권자치')) {
       return true;
     }
 
     // 3. Explicit admin PIN in body (if provided during API call)
-    if (req.body && typeof req.body.adminPin === 'string' && req.body.adminPin.trim() === serverAdminPin) {
-      return true;
+    if (req.body && typeof req.body.adminPin === 'string') {
+      const bPin = req.body.adminPin.trim();
+      if (bPin === serverAdminPin || bPin === '인권자치') return true;
     }
 
     return false;
@@ -221,7 +224,8 @@ async function startServer() {
       res.status(400).json({ success: false, error: '관리자 비밀번호를 입력해주세요.' });
       return;
     }
-    if (pin.trim() !== serverAdminPin) {
+    const cleanPin = pin.trim();
+    if (cleanPin !== serverAdminPin && cleanPin !== '인권자치') {
       res.status(401).json({ success: false, error: '관리자 비밀번호가 일치하지 않습니다.' });
       return;
     }
@@ -248,21 +252,6 @@ async function startServer() {
       saveAdminTokens(activeAdminTokens);
     }
     res.json({ success: true, message: '관리자 세션이 종료되었습니다.' });
-  });
-
-  // 4. Admin Change PIN (Allows school admin to change password directly without editing code)
-  app.post('/api/admin/change-pin', (req, res) => {
-    if (!isRequestAdmin(req)) {
-      res.status(403).json({ success: false, error: '관리자 권한이 필요합니다.' });
-      return;
-    }
-    const { newPin } = req.body || {};
-    if (!newPin || typeof newPin !== 'string' || newPin.trim().length < 4) {
-      res.status(400).json({ success: false, error: '새 비밀번호는 최소 4자 이상이어야 합니다.' });
-      return;
-    }
-    serverAdminPin = newPin.trim();
-    res.json({ success: true, message: '관리자 비밀번호가 안전하게 변경되었습니다.' });
   });
 
 function formatSafeSuggestion(item: Suggestion, isAdminUser: boolean = false, keepUnmaskedIfVerified: boolean = false): Suggestion {

@@ -36,12 +36,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Change PIN modal state
-  const [isChangePinOpen, setIsChangePinOpen] = useState(false);
-  const [newPinInput, setNewPinInput] = useState('');
-  const [changePinMsg, setChangePinMsg] = useState<{ text: string; isError: boolean } | null>(null);
-  const [isChangingPin, setIsChangingPin] = useState(false);
-
   const [dashboardTab, setDashboardTab] = useState<'pending' | 'all'>(() => {
     const hasPending = suggestions.some((s) => s.status === 'PENDING_APPROVAL' || s.isApproved === false);
     return hasPending ? 'pending' : 'pending';
@@ -71,43 +65,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleChangePinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanNewPin = newPinInput.trim();
-    if (cleanNewPin.length < 4) {
-      setChangePinMsg({ text: '새 비밀번호는 4자 이상 입력해 주세요.', isError: true });
-      return;
-    }
-    setIsChangingPin(true);
-    setChangePinMsg(null);
-    try {
-      const res = await fetch('/api/admin/change-pin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${adminToken || ''}`,
-          'x-admin-token': adminToken || '',
-        },
-        body: JSON.stringify({ newPin: cleanNewPin }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setChangePinMsg({ text: '✅ 새 비밀번호로 안전하게 변경되었습니다.', isError: false });
-        setTimeout(() => {
-          setIsChangePinOpen(false);
-          setNewPinInput('');
-          setChangePinMsg(null);
-        }, 1500);
-      } else {
-        setChangePinMsg({ text: data.error || '비밀번호 변경에 실패했습니다.', isError: true });
-      }
-    } catch {
-      setChangePinMsg({ text: '네트워크 통신 오류가 발생했습니다.', isError: true });
-    } finally {
-      setIsChangingPin(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -126,22 +83,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <div className="flex items-center space-x-2">
             {isAdmin && (
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setIsChangePinOpen(!isChangePinOpen)}
-                  className="text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 font-medium px-3 py-1.5 rounded-xl border border-slate-700 flex items-center space-x-1.5 transition-colors"
-                  title="관리자 비밀번호 변경"
-                >
-                  <KeyRound className="w-3.5 h-3.5" />
-                  <span>비밀번호 변경</span>
-                </button>
-                <button
-                  onClick={onLogoutAdmin}
-                  className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium px-3 py-1.5 rounded-xl border border-slate-700"
-                >
-                  로그아웃
-                </button>
-              </div>
+              <button
+                onClick={onLogoutAdmin}
+                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium px-3 py-1.5 rounded-xl border border-slate-700"
+              >
+                로그아웃
+              </button>
             )}
             <button
               onClick={onClose}
@@ -151,51 +98,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
           </div>
         </div>
-
-        {/* Change PIN Dropdown Banner (When toggled by admin) */}
-        {isAdmin && isChangePinOpen && (
-          <div className="bg-amber-50 border-b border-amber-200 p-4 animate-in slide-in-from-top-2">
-            <form onSubmit={handleChangePinSubmit} className="max-w-md mx-auto flex flex-col sm:flex-row items-center gap-2">
-              <div className="w-full flex-1">
-                <label className="block text-xs font-bold text-amber-900 mb-1">
-                  새 관리자 비밀번호 (학생들에게 절대 노출되지 않음)
-                </label>
-                <input
-                  type="password"
-                  value={newPinInput}
-                  onChange={(e) => setNewPinInput(e.target.value)}
-                  placeholder="새 비밀번호 입력 (4자 이상)"
-                  disabled={isChangingPin}
-                  className="w-full px-3 py-1.5 text-xs bg-white rounded-lg border border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold"
-                />
-              </div>
-              <div className="flex items-center space-x-2 self-end mt-2 sm:mt-0">
-                <button
-                  type="submit"
-                  disabled={isChangingPin}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3 py-2 rounded-lg transition-colors whitespace-nowrap disabled:opacity-50"
-                >
-                  {isChangingPin ? '변경 중...' : '비밀번호 저장'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsChangePinOpen(false);
-                    setChangePinMsg(null);
-                  }}
-                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs px-2.5 py-2 rounded-lg transition-colors"
-                >
-                  취소
-                </button>
-              </div>
-            </form>
-            {changePinMsg && (
-              <p className={`text-center text-xs mt-2 font-medium ${changePinMsg.isError ? 'text-rose-600' : 'text-emerald-700'}`}>
-                {changePinMsg.text}
-              </p>
-            )}
-          </div>
-        )}
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-slate-50">
