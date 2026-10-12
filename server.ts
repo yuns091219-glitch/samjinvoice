@@ -168,8 +168,8 @@ async function startServer() {
 
   // Server-side admin PIN & active session tokens (NEVER sent to client browser bundles)
   // Server-side admin PIN & active session tokens (NEVER sent to client browser bundles)
-  // Current admin password: 'dlsrnjswkcl' (한글 키보드: '인권자치')
-  let serverAdminPin = 'dlsrnjswkcl';
+  // Current admin password: 'tjdgk' (한글 키보드: '성하')
+  let serverAdminPin = 'tjdgk';
   const SESSIONS_FILE = path.join(process.cwd(), '.admin_sessions.json');
   function loadAdminTokens(): Set<string> {
     try {
@@ -203,14 +203,14 @@ async function startServer() {
 
     // 2. Direct server-side admin PIN header (for server-to-server or secure CLI)
     const adminPinHeader = String(req.headers['x-admin-pin'] || '').trim();
-    if (adminPinHeader && (adminPinHeader === serverAdminPin || adminPinHeader === '인권자치')) {
+    if (adminPinHeader && (adminPinHeader === serverAdminPin || adminPinHeader === '성하')) {
       return true;
     }
 
     // 3. Explicit admin PIN in body (if provided during API call)
     if (req.body && typeof req.body.adminPin === 'string') {
       const bPin = req.body.adminPin.trim();
-      if (bPin === serverAdminPin || bPin === '인권자치') return true;
+      if (bPin === serverAdminPin || bPin === '성하') return true;
     }
 
     return false;
@@ -225,7 +225,7 @@ async function startServer() {
       return;
     }
     const cleanPin = pin.trim();
-    if (cleanPin !== serverAdminPin && cleanPin !== '인권자치') {
+    if (cleanPin !== serverAdminPin && cleanPin !== '성하') {
       res.status(401).json({ success: false, error: '관리자 비밀번호가 일치하지 않습니다.' });
       return;
     }
