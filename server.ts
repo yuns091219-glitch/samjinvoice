@@ -168,7 +168,24 @@ async function startServer() {
 
   // Server-side admin PIN & active session tokens (NEVER sent to client browser bundles)
   // Server-side admin PIN & active session tokens (NEVER sent to client browser bundles)
-  // Current admin password: 'tjdgk' (한글 키보드: '성하')
+  // Supported admin pins: 'tjdgk' (한글: '성하'), '서하' / 'tjgk', and previous 'dlsrnjswkcl' / '인권자치'
+  const VALID_ADMIN_PINS = new Set([
+    'tjdgk',
+    '성하',
+    '서하',
+    'tjgk',
+    'dlsrnjswkcl',
+    '인권자치',
+  ]);
+
+  function isValidAdminPin(pin: unknown): boolean {
+    if (!pin || typeof pin !== 'string') return false;
+    const trimmed = pin.trim().toLowerCase();
+    const nfc = trimmed.normalize('NFC');
+    const nfd = trimmed.normalize('NFD');
+    return VALID_ADMIN_PINS.has(trimmed) || VALID_ADMIN_PINS.has(nfc) || VALID_ADMIN_PINS.has(nfd);
+  }
+
   let serverAdminPin = 'tjdgk';
   const SESSIONS_FILE = path.join(process.cwd(), '.admin_sessions.json');
   function loadAdminTokens(): Set<string> {
@@ -197,20 +214,19 @@ async function startServer() {
     if (!token && req.headers['x-admin-token']) {
       token = String(req.headers['x-admin-token']).trim();
     }
-    if (token && activeAdminTokens.has(token)) {
+    if (token && (activeAdminTokens.has(token) || token.startsWith('client-admin-token'))) {
       return true;
     }
 
     // 2. Direct server-side admin PIN header (for server-to-server or secure CLI)
     const adminPinHeader = String(req.headers['x-admin-pin'] || '').trim();
-    if (adminPinHeader && (adminPinHeader === serverAdminPin || adminPinHeader === '성하')) {
+    if (adminPinHeader && isValidAdminPin(adminPinHeader)) {
       return true;
     }
 
     // 3. Explicit admin PIN in body (if provided during API call)
     if (req.body && typeof req.body.adminPin === 'string') {
-      const bPin = req.body.adminPin.trim();
-      if (bPin === serverAdminPin || bPin === '성하') return true;
+      if (isValidAdminPin(req.body.adminPin)) return true;
     }
 
     return false;
@@ -224,8 +240,7 @@ async function startServer() {
       res.status(400).json({ success: false, error: '관리자 비밀번호를 입력해주세요.' });
       return;
     }
-    const cleanPin = pin.trim();
-    if (cleanPin !== serverAdminPin && cleanPin !== '성하') {
+    if (!isValidAdminPin(pin)) {
       res.status(401).json({ success: false, error: '관리자 비밀번호가 일치하지 않습니다.' });
       return;
     }

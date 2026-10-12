@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Suggestion, AdminStats, Status, normalizeCategory, stripMetadataMarkers } from '../types';
 import { CATEGORY_LABELS, CATEGORY_ICONS } from './SuggestionCard';
-import { ShieldCheck, Award, CheckCircle2, Clock, FileSearch, AlertCircle, X, BarChart3, TrendingUp, KeyRound, Trash2 } from 'lucide-react';
+import { ShieldCheck, Award, CheckCircle2, Clock, FileSearch, AlertCircle, X, BarChart3, TrendingUp, KeyRound, Trash2, Eye, EyeOff } from 'lucide-react';
 
 interface AdminDashboardProps {
   isOpen: boolean;
@@ -33,6 +33,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   if (!isOpen) return null;
 
   const [inputPin, setInputPin] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -117,20 +118,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <form onSubmit={handleLoginSubmit} className="space-y-3">
-                <input
-                  type="password"
-                  value={inputPin}
-                  onChange={(e) => setInputPin(e.target.value)}
-                  placeholder="관리자 비밀번호 입력"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-center font-bold text-base focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={inputPin}
+                    onChange={(e) => setInputPin(e.target.value)}
+                    placeholder="관리자 비밀번호 입력"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="w-full px-10 py-2.5 rounded-xl border border-slate-300 text-center font-bold text-base focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-md transition-colors"
+                    title={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
 
                 {errorMsg && <p className="text-xs text-rose-600 font-medium">{errorMsg}</p>}
 
                 <button
                   type="submit"
                   disabled={isLoggingIn}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-sm transition-all disabled:opacity-60"
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-sm transition-all disabled:opacity-60 cursor-pointer"
                 >
                   {isLoggingIn ? '인증 확인 중...' : '대시보드 로그인'}
                 </button>

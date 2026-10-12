@@ -35,7 +35,7 @@ import {
   verifySuggestionPin,
   supabase,
 } from './lib/supabase';
-import { INITIAL_SUGGESTIONS } from './data/initialData';
+import { INITIAL_SUGGESTIONS, INITIAL_NOTICES } from './data/initialData';
 
 export default function App() {
   // Initial suggestions from localStorage for instant load, excluding pre-seeded default mock suggestions
@@ -64,7 +64,7 @@ export default function App() {
       console.error('Failed to save suggestions to localStorage:', e);
     }
   }, [suggestions]);
-  const [notices, setNotices] = useState<Notice[]>([]);
+  const [notices, setNotices] = useState<Notice[]>(INITIAL_NOTICES);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -360,8 +360,8 @@ export default function App() {
       }
       setError(null);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || '서버 통신 오류');
+      console.warn('fetchSuggestions note:', err);
+      setError(err?.message || '건의사항 조회 중 일시적 통신 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -373,11 +373,16 @@ export default function App() {
       if (res.ok) {
         const contentType = res.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
-          setNotices(await res.json());
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            setNotices(data);
+          }
         }
       }
     } catch (err) {
-      console.error(err);
+      // Gracefully fall back to preloaded notices without throwing errors
+      console.warn('Could not fetch notices from backend, using default notices:', err);
+      setNotices((prev) => (prev.length > 0 ? prev : INITIAL_NOTICES));
     }
   };
 
@@ -1366,10 +1371,11 @@ export default function App() {
   // Admin Login (Secure server-side authentication: PIN is never exposed in client source code)
   const handleLoginAdmin = async (pin: string): Promise<boolean> => {
     try {
+      const trimmedPin = pin.trim();
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: pin.trim() }),
+        body: JSON.stringify({ pin: trimmedPin }),
       });
       const data = await res.json();
       if (res.ok && data.success && data.token) {
